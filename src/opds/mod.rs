@@ -115,6 +115,14 @@ impl OpdsGenerator {
             Some("Browse books by rating"),
         )?;
 
+        // Link to read years
+        self.write_navigation_entry(
+            &mut writer,
+            "Read by Year",
+            "/read-years",
+            Some("Browse books read by year"),
+        )?;
+
         writer.write_event(Event::End(BytesEnd::new("feed")))?;
 
         let result = writer.into_inner().into_inner();

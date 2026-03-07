@@ -598,4 +598,65 @@ impl CalibreDb {
         }
         Ok(result)
     }
+
+    /// Get years when books were read
+    /// Get years when books were read with counts
+    pub async fn get_read_years_with_counts(&self) -> Result<Vec<Category>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT strftime('%Y', value) as year, COUNT(*) as count 
+             FROM custom_column_2 
+             WHERE value IS NOT NULL 
+             GROUP BY year 
+             ORDER BY year DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| Category {
+                id: row.get::<String, _>("year").parse().unwrap_or(0),
+                name: row.get("year"),
+                count: row.get("count"),
+            })
+            .collect())
+    }
+
+    /// Get books read in a specific year
+    pub async fn get_books_read_in_year(
+        &self,
+        year: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<BookMetadata>, sqlx::Error> {
+        tracing::info!("Fetching books read in year: {}", year);
+
+        let books = sqlx::query_as::<_, Book>(
+            "SELECT b.* FROM books b 
+             JOIN custom_column_2 cc ON b.id = cc.book 
+             WHERE strftime('%Y', cc.value) = ? 
+             ORDER BY cc.value DESC 
+             LIMIT ? OFFSET ?",
+        )
+        .bind(year)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        tracing::info!("Found {} books for year {}", books.len(), year);
+
+        let mut result = Vec::new();
+        for book in books {
+            match self.get_book_metadata(book.id).await {
+                Ok(metadata) => result.push(metadata),
+                Err(e) => {
+                    tracing::warn!("Failed to load metadata for book {}: {}", book.id, e);
+                }
+            }
+        }
+
+        tracing::info!("Returning {} books with metadata", result.len());
+        Ok(result)
+    }
 }

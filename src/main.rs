@@ -9,6 +9,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use clap::Parser;
 use config::Config;
 use db::CalibreDb;
 use opds::OpdsGenerator;
@@ -16,6 +17,27 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+/// Calibre OPDS Server - A lightweight OPDS server for Calibre libraries
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Path to Calibre library directory
+    #[arg(short, long, env = "CALIBRE_LIBRARY_PATH")]
+    library: std::path::PathBuf,
+
+    /// Server host address
+    #[arg(long, env = "HOST", default_value = "127.0.0.1")]
+    host: String,
+
+    /// Server port
+    #[arg(short, long, env = "PORT", default_value = "8080")]
+    port: u16,
+
+    /// Base URL for the server (used in OPDS links)
+    #[arg(short, long, env = "BASE_URL")]
+    base_url: Option<String>,
+}
 
 /// Application state
 #[derive(Clone)]
@@ -53,6 +75,9 @@ fn default_per_page() -> i64 {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Parse command line arguments
+    let args = Args::parse();
+
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
@@ -62,17 +87,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Load configuration (for now, hardcoded - can be extended to read from file/env)
+    // Build configuration from arguments
     let config = Config {
-        library_path: std::env::var("CALIBRE_LIBRARY_PATH")
-            .unwrap_or_else(|_| "/path/to/calibre/library".to_string())
-            .into(),
-        host: std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string()),
-        port: std::env::var("PORT")
-            .ok()
-            .and_then(|p| p.parse().ok())
-            .unwrap_or(8080),
-        base_url: std::env::var("BASE_URL").ok(),
+        library_path: args.library,
+        host: args.host,
+        port: args.port,
+        base_url: args.base_url,
     };
 
     tracing::info!("Connecting to Calibre database at {:?}", config.db_path());
@@ -102,6 +122,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/languages/:id", get(books_by_language))
         .route("/ratings", get(ratings_catalog))
         .route("/ratings/:id", get(books_by_rating))
+        .route("/read-years", get(read_years_catalog))
+        .route("/read-years/:year", get(books_read_in_year))
         .route("/download/:id/:format", get(download_book))
         .route("/cover/:id", get(get_cover))
         .layer(TraceLayer::new_for_http())
@@ -535,6 +557,51 @@ async fn books_by_rating(
     let books = state
         .db
         .get_books_by_rating(id, params.per_page, offset)
+        .await?;
+    let total = books.len() as i64;
+
+    let generator = OpdsGenerator::new(state.config.base_url());
+    let xml = generator.generate_books_feed(books, params.page, params.per_page, total)?;
+
+    Ok((
+        StatusCode::OK,
+        [(
+            header::CONTENT_TYPE,
+            "application/atom+xml;profile=opds-catalog;kind=acquisition",
+        )],
+        xml,
+    )
+        .into_response())
+}
+
+/// Read years catalog
+async fn read_years_catalog(State(state): State<AppState>) -> Result<Response, AppError> {
+    let categories = state.db.get_read_years_with_counts().await?;
+
+    let generator = OpdsGenerator::new(state.config.base_url());
+    let xml = generator.generate_category_feed("Books Read by Year", "/read-years", categories)?;
+
+    Ok((
+        StatusCode::OK,
+        [(
+            header::CONTENT_TYPE,
+            "application/atom+xml;profile=opds-catalog;kind=navigation",
+        )],
+        xml,
+    )
+        .into_response())
+}
+
+/// Books read in a specific year
+async fn books_read_in_year(
+    State(state): State<AppState>,
+    Path(year): Path<String>,
+    Query(params): Query<PaginationQuery>,
+) -> Result<Response, AppError> {
+    let offset = (params.page - 1) * params.per_page;
+    let books = state
+        .db
+        .get_books_read_in_year(&year, params.per_page, offset)
         .await?;
     let total = books.len() as i64;
 

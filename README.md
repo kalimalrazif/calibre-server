@@ -14,14 +14,32 @@ A lightweight OPDS server for Calibre libraries written in Rust.
 
 ## Configuration
 
-Set environment variables:
+### Command Line Arguments
+
+```bash
+calibre-server --library /path/to/your/calibre/library --host 0.0.0.0 --port 8080
+```
+
+**Options:**
+- `-l, --library <PATH>` - Path to Calibre library directory (required)
+- `--host <HOST>` - Server host address (default: 127.0.0.1)
+- `-p, --port <PORT>` - Server port (default: 8080)
+- `-b, --base-url <URL>` - Base URL for OPDS links (optional, auto-detected)
+- `-h, --help` - Print help
+- `-V, --version` - Print version
+
+### Environment Variables
+
+All arguments can also be set via environment variables:
 
 ```bash
 export CALIBRE_LIBRARY_PATH="/path/to/your/calibre/library"
-export HOST="127.0.0.1"  # optional, default: 127.0.0.1
-export PORT="8080"       # optional, default: 8080
-export BASE_URL="http://localhost:8080"  # optional, auto-detected
+export HOST="127.0.0.1"
+export PORT="8080"
+export BASE_URL="http://localhost:8080"
 ```
+
+Command line arguments take precedence over environment variables.
 
 ## Running
 
