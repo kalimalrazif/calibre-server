@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - Calibre Library{% endblock %}
+
+{% block content %}
+<h2>{{ title }}</h2>
+
+<div class="book-list" style="margin-top: 20px;">
+    {% for book in books %}
+    <div class="book-item">
+        {% match book.book.has_cover %}
+        {% when Some with (has_cover) %}
+        {% if has_cover %}
+        <img src="/cover/{{ book.book.id }}" alt="Cover" class="book-cover">
+        {% else %}
+        <div class="book-cover"></div>
+        {% endif %}
+        {% when None %}
+        <div class="book-cover"></div>
+        {% endmatch %}
+        
+        <div class="book-details">
+            <div class="book-title">{{ book.book.title }}</div>
+            <div class="book-meta">
+                {% if book.authors.len() > 0 %}
+                by {% for author in book.authors %}{{ author.name }}{% if !loop.last %}, {% endif %}{% endfor %}
+                {% endif %}
+                {% match book.series_name %}
+                {% when Some with (name) %}
+                | Series: {{ name }}
+                {% match book.series_index %}
+                {% when Some with (idx) %} #{{ idx }}{% when None %}{% endmatch %}
+                {% when None %}
+                {% endmatch %}
+            </div>
+            {% match book.comment %}
+            {% when Some with (text) %}
+            <div class="book-meta" style="margin-top: 5px;">{{ text }}</div>
+            {% when None %}
+            {% endmatch %}
+            <div class="book-formats" style="margin-top: 10px;">
+                {% for format in book.formats %}
+                <a href="/download/{{ book.book.id }}/{{ format.format|lower }}">{{ format.format }}</a>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% if total > per_page %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="?page={{ page - 1 }}&per_page={{ per_page }}">← Previous</a>
+    {% endif %}
+    <span>Page {{ page }} of {{ (total + per_page - 1) / per_page }}</span>
+    {% if page * per_page < total %}
+    <a href="?page={{ page + 1 }}&per_page={{ per_page }}">Next →</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

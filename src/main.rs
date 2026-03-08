@@ -1,7 +1,9 @@
 mod config;
 mod db;
+mod html;
 mod opds;
 
+use askama_axum::IntoResponse as AskamaIntoResponse;
 use axum::{
     Router,
     extract::{Path, Query, State},
@@ -12,6 +14,7 @@ use axum::{
 use clap::Parser;
 use config::Config;
 use db::CalibreDb;
+use html::{BooksTemplate, CategoriesTemplate, IndexTemplate};
 use opds::OpdsGenerator;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -105,6 +108,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build router
     let app = Router::new()
+        // HTML routes
+        .route("/html", get(html_index))
+        .route("/html/books", get(html_books))
+        .route("/html/recent", get(html_recent))
+        .route("/html/search", get(html_search))
+        .route("/html/authors", get(html_authors))
+        .route("/html/authors/:id", get(html_books_by_author))
+        .route("/html/series", get(html_series))
+        .route("/html/series/:id", get(html_books_by_series))
+        .route("/html/tags", get(html_tags))
+        .route("/html/tags/:id", get(html_books_by_tag))
+        .route("/html/publishers", get(html_publishers))
+        .route("/html/publishers/:id", get(html_books_by_publisher))
+        .route("/html/languages", get(html_languages))
+        .route("/html/languages/:id", get(html_books_by_language))
+        .route("/html/ratings", get(html_ratings))
+        .route("/html/ratings/:id", get(html_books_by_rating))
+        .route("/html/read-years", get(html_read_years))
+        .route("/html/read-years/:year", get(html_books_read_in_year))
+        // OPDS routes
         .route("/", get(root_catalog))
         .route("/search.xml", get(opensearch_descriptor))
         .route("/search", get(search_books))
@@ -617,6 +640,304 @@ async fn books_read_in_year(
         xml,
     )
         .into_response())
+}
+
+// ============================================================================
+// HTML Handlers
+// ============================================================================
+
+/// HTML index page
+async fn html_index() -> impl AskamaIntoResponse {
+    IndexTemplate
+}
+
+/// HTML all books
+async fn html_books(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationQuery>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let offset = (params.page - 1) * params.per_page;
+    let books = state.db.get_books(params.per_page, offset).await?;
+    let total = state.db.get_book_count().await?;
+
+    Ok(BooksTemplate {
+        title: "All Books".to_string(),
+        books,
+        page: params.page,
+        per_page: params.per_page,
+        total,
+    })
+}
+
+/// HTML recent books
+async fn html_recent(State(state): State<AppState>) -> Result<impl AskamaIntoResponse, AppError> {
+    let books = state.db.get_recent_books(100).await?;
+
+    Ok(BooksTemplate {
+        title: "Recently Added".to_string(),
+        books,
+        page: 1,
+        per_page: 100,
+        total: 100,
+    })
+}
+
+/// HTML search
+async fn html_search(
+    State(state): State<AppState>,
+    Query(params): Query<SearchQuery>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let offset = (params.page - 1) * params.per_page;
+    let books = state
+        .db
+        .search_books(&params.q, params.per_page, offset)
+        .await?;
+    let total = books.len() as i64;
+
+    Ok(BooksTemplate {
+        title: format!("Search results for '{}'", params.q),
+        books,
+        page: params.page,
+        per_page: params.per_page,
+        total,
+    })
+}
+
+/// HTML authors list
+async fn html_authors(State(state): State<AppState>) -> Result<impl AskamaIntoResponse, AppError> {
+    let authors = state.db.get_authors().await?;
+
+    Ok(CategoriesTemplate {
+        title: "Authors".to_string(),
+        categories: authors,
+        base_path: "/html/authors".to_string(),
+    })
+}
+
+/// HTML books by author
+async fn html_books_by_author(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Query(params): Query<PaginationQuery>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let offset = (params.page - 1) * params.per_page;
+    let books = state
+        .db
+        .get_books_by_author(id, params.per_page, offset)
+        .await?;
+    let total = books.len() as i64;
+
+    Ok(BooksTemplate {
+        title: "Books by Author".to_string(),
+        books,
+        page: params.page,
+        per_page: params.per_page,
+        total,
+    })
+}
+
+/// HTML series list
+async fn html_series(State(state): State<AppState>) -> Result<impl AskamaIntoResponse, AppError> {
+    let series = state.db.get_series().await?;
+
+    Ok(CategoriesTemplate {
+        title: "Series".to_string(),
+        categories: series,
+        base_path: "/html/series".to_string(),
+    })
+}
+
+/// HTML books by series
+async fn html_books_by_series(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Query(params): Query<PaginationQuery>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let offset = (params.page - 1) * params.per_page;
+    let books = state
+        .db
+        .get_books_by_series(id, params.per_page, offset)
+        .await?;
+    let total = books.len() as i64;
+
+    Ok(BooksTemplate {
+        title: "Books in Series".to_string(),
+        books,
+        page: params.page,
+        per_page: params.per_page,
+        total,
+    })
+}
+
+/// HTML tags list
+async fn html_tags(State(state): State<AppState>) -> Result<impl AskamaIntoResponse, AppError> {
+    let tags = state.db.get_tags().await?;
+
+    Ok(CategoriesTemplate {
+        title: "Tags".to_string(),
+        categories: tags,
+        base_path: "/html/tags".to_string(),
+    })
+}
+
+/// HTML books by tag
+async fn html_books_by_tag(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Query(params): Query<PaginationQuery>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let offset = (params.page - 1) * params.per_page;
+    let books = state
+        .db
+        .get_books_by_tag(id, params.per_page, offset)
+        .await?;
+    let total = books.len() as i64;
+
+    Ok(BooksTemplate {
+        title: "Books with Tag".to_string(),
+        books,
+        page: params.page,
+        per_page: params.per_page,
+        total,
+    })
+}
+
+/// HTML publishers list
+async fn html_publishers(
+    State(state): State<AppState>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let publishers = state.db.get_publishers().await?;
+
+    Ok(CategoriesTemplate {
+        title: "Publishers".to_string(),
+        categories: publishers,
+        base_path: "/html/publishers".to_string(),
+    })
+}
+
+/// HTML books by publisher
+async fn html_books_by_publisher(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Query(params): Query<PaginationQuery>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let offset = (params.page - 1) * params.per_page;
+    let books = state
+        .db
+        .get_books_by_publisher(id, params.per_page, offset)
+        .await?;
+    let total = books.len() as i64;
+
+    Ok(BooksTemplate {
+        title: "Books by Publisher".to_string(),
+        books,
+        page: params.page,
+        per_page: params.per_page,
+        total,
+    })
+}
+
+/// HTML languages list
+async fn html_languages(
+    State(state): State<AppState>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let languages = state.db.get_languages().await?;
+
+    Ok(CategoriesTemplate {
+        title: "Languages".to_string(),
+        categories: languages,
+        base_path: "/html/languages".to_string(),
+    })
+}
+
+/// HTML books by language
+async fn html_books_by_language(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Query(params): Query<PaginationQuery>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let offset = (params.page - 1) * params.per_page;
+    let books = state
+        .db
+        .get_books_by_language(id, params.per_page, offset)
+        .await?;
+    let total = books.len() as i64;
+
+    Ok(BooksTemplate {
+        title: "Books in Language".to_string(),
+        books,
+        page: params.page,
+        per_page: params.per_page,
+        total,
+    })
+}
+
+/// HTML ratings list
+async fn html_ratings(State(state): State<AppState>) -> Result<impl AskamaIntoResponse, AppError> {
+    let ratings = state.db.get_ratings().await?;
+
+    Ok(CategoriesTemplate {
+        title: "Ratings".to_string(),
+        categories: ratings,
+        base_path: "/html/ratings".to_string(),
+    })
+}
+
+/// HTML books by rating
+async fn html_books_by_rating(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Query(params): Query<PaginationQuery>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let offset = (params.page - 1) * params.per_page;
+    let books = state
+        .db
+        .get_books_by_rating(id, params.per_page, offset)
+        .await?;
+    let total = books.len() as i64;
+
+    Ok(BooksTemplate {
+        title: "Books with Rating".to_string(),
+        books,
+        page: params.page,
+        per_page: params.per_page,
+        total,
+    })
+}
+
+/// HTML read years list
+async fn html_read_years(
+    State(state): State<AppState>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let years = state.db.get_read_years_with_counts().await?;
+
+    Ok(CategoriesTemplate {
+        title: "Books Read by Year".to_string(),
+        categories: years,
+        base_path: "/html/read-years".to_string(),
+    })
+}
+
+/// HTML books read in year
+async fn html_books_read_in_year(
+    State(state): State<AppState>,
+    Path(year): Path<String>,
+    Query(params): Query<PaginationQuery>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let offset = (params.page - 1) * params.per_page;
+    let books = state
+        .db
+        .get_books_read_in_year(&year, params.per_page, offset)
+        .await?;
+    let total = books.len() as i64;
+
+    Ok(BooksTemplate {
+        title: format!("Books Read in {}", year),
+        books,
+        page: params.page,
+        per_page: params.per_page,
+        total,
+    })
 }
 
 /// Application error type

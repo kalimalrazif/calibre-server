@@ -5,11 +5,15 @@ A lightweight OPDS server for Calibre libraries written in Rust.
 ## Features
 
 - ✅ OPDS 1.2 compliant feeds
+- ✅ HTML web interface for browser access
 - ✅ Read-only access to Calibre metadata.db
 - ✅ Support for custom columns
 - ✅ Multiple format support (EPUB, PDF, MOBI, AZW3, etc.)
 - ✅ Book cover images
 - ✅ Pagination
+- ✅ OpenSearch integration
+- ✅ Navigation by authors, series, tags, publishers, languages, ratings
+- ✅ Books read by year catalog
 - 🔒 Designed to run behind reverse proxy (nginx/caddy) for auth/TLS
 
 ## Configuration
@@ -53,6 +57,15 @@ cargo run --release
 - `GET /books?page=1&per_page=50` - All books (paginated)
 - `GET /download/:id/:format` - Download book (e.g., `/download/123/epub`)
 - `GET /cover/:id` - Get book cover image
+
+## HTML Interface
+
+Access the web interface at `http://your-server:port/html`
+
+- Browse books by various categories
+- Search functionality
+- Responsive design for mobile and desktop
+- Direct download links for all formats
 
 ## Reverse Proxy Setup (nginx)
 
