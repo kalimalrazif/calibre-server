@@ -1,5 +1,6 @@
 mod config;
 mod db;
+mod epub;
 mod html;
 mod opds;
 
@@ -266,7 +267,37 @@ async fn download_book(
         return Err(AppError::NotFound("File not found".to_string()));
     }
 
-    let content = tokio::fs::read(&file_path).await?;
+    // For EPUB files, update metadata before sending
+    let content = if format_upper == "EPUB" {
+        tracing::info!("Updating EPUB metadata for book {}", id);
+        let file_path_clone = file_path.clone();
+        let book_meta_clone = book_meta.clone();
+
+        match tokio::task::spawn_blocking(move || {
+            epub::update_epub_metadata(&file_path_clone, &book_meta_clone)
+        })
+        .await
+        {
+            Ok(Ok(updated_content)) => {
+                tracing::info!("Successfully updated EPUB metadata");
+                updated_content
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(
+                    "Failed to update EPUB metadata: {}, sending original file",
+                    e
+                );
+                tokio::fs::read(&file_path).await?
+            }
+            Err(e) => {
+                tracing::warn!("Task failed: {}, sending original file", e);
+                tokio::fs::read(&file_path).await?
+            }
+        }
+    } else {
+        tokio::fs::read(&file_path).await?
+    };
+
     let mime_type = mime_guess::from_path(&file_path)
         .first_or_octet_stream()
         .to_string();

@@ -9,6 +9,7 @@ A lightweight OPDS server for Calibre libraries written in Rust.
 - ✅ Read-only access to Calibre metadata.db
 - ✅ Support for custom columns
 - ✅ Multiple format support (EPUB, PDF, MOBI, AZW3, etc.)
+- ✅ EPUB metadata update on download (syncs with Calibre database)
 - ✅ Book cover images
 - ✅ Pagination
 - ✅ OpenSearch integration
