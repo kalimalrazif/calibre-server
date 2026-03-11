@@ -21,4 +21,6 @@ pub struct BooksTemplate {
     pub page: i64,
     pub per_page: i64,
     pub total: i64,
+    pub sort: String,
+    pub view: String,
 }

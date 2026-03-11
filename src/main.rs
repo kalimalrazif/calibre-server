@@ -19,7 +19,7 @@ use html::{BooksTemplate, CategoriesTemplate, IndexTemplate};
 use opds::OpdsGenerator;
 use serde::Deserialize;
 use std::sync::Arc;
-use tower_http::trace::TraceLayer;
+use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Calibre OPDS Server - A lightweight OPDS server for Calibre libraries
@@ -57,6 +57,10 @@ struct PaginationQuery {
     page: i64,
     #[serde(default = "default_per_page")]
     per_page: i64,
+    #[serde(default)]
+    sort: String,
+    #[serde(default = "default_view")]
+    view: String,
 }
 
 /// Query parameters for search
@@ -67,6 +71,10 @@ struct SearchQuery {
     page: i64,
     #[serde(default = "default_per_page")]
     per_page: i64,
+    #[serde(default)]
+    sort: String,
+    #[serde(default = "default_view")]
+    view: String,
 }
 
 fn default_page() -> i64 {
@@ -75,6 +83,10 @@ fn default_page() -> i64 {
 
 fn default_per_page() -> i64 {
     50
+}
+
+fn default_view() -> String {
+    "list".to_string()
 }
 
 #[tokio::main]
@@ -150,6 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/read-years/:year", get(books_read_in_year))
         .route("/download/:id/:format", get(download_book))
         .route("/cover/:id", get(get_cover))
+        .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
@@ -226,7 +239,10 @@ async fn books_catalog(
     Query(params): Query<PaginationQuery>,
 ) -> Result<Response, AppError> {
     let offset = (params.page - 1) * params.per_page;
-    let books = state.db.get_books(params.per_page, offset).await?;
+    let books = state
+        .db
+        .get_books(params.per_page, offset, &params.sort)
+        .await?;
     let total = state.db.get_book_count().await?;
 
     let generator = OpdsGenerator::new(state.config.base_url());
@@ -688,7 +704,10 @@ async fn html_books(
     Query(params): Query<PaginationQuery>,
 ) -> Result<impl AskamaIntoResponse, AppError> {
     let offset = (params.page - 1) * params.per_page;
-    let books = state.db.get_books(params.per_page, offset).await?;
+    let books = state
+        .db
+        .get_books(params.per_page, offset, &params.sort)
+        .await?;
     let total = state.db.get_book_count().await?;
 
     Ok(BooksTemplate {
@@ -697,11 +716,16 @@ async fn html_books(
         page: params.page,
         per_page: params.per_page,
         total,
+        sort: params.sort.clone(),
+        view: params.view.clone(),
     })
 }
 
 /// HTML recent books
-async fn html_recent(State(state): State<AppState>) -> Result<impl AskamaIntoResponse, AppError> {
+async fn html_recent(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationQuery>,
+) -> Result<impl AskamaIntoResponse, AppError> {
     let books = state.db.get_recent_books(100).await?;
 
     Ok(BooksTemplate {
@@ -710,6 +734,8 @@ async fn html_recent(State(state): State<AppState>) -> Result<impl AskamaIntoRes
         page: 1,
         per_page: 100,
         total: 100,
+        sort: params.sort.clone(),
+        view: params.view.clone(),
     })
 }
 
@@ -731,6 +757,8 @@ async fn html_search(
         page: params.page,
         per_page: params.per_page,
         total,
+        sort: params.sort.clone(),
+        view: params.view.clone(),
     })
 }
 
@@ -764,6 +792,8 @@ async fn html_books_by_author(
         page: params.page,
         per_page: params.per_page,
         total,
+        sort: params.sort.clone(),
+        view: params.view.clone(),
     })
 }
 
@@ -797,6 +827,8 @@ async fn html_books_by_series(
         page: params.page,
         per_page: params.per_page,
         total,
+        sort: params.sort.clone(),
+        view: params.view.clone(),
     })
 }
 
@@ -830,6 +862,8 @@ async fn html_books_by_tag(
         page: params.page,
         per_page: params.per_page,
         total,
+        sort: params.sort.clone(),
+        view: params.view.clone(),
     })
 }
 
@@ -865,6 +899,8 @@ async fn html_books_by_publisher(
         page: params.page,
         per_page: params.per_page,
         total,
+        sort: params.sort.clone(),
+        view: params.view.clone(),
     })
 }
 
@@ -900,6 +936,8 @@ async fn html_books_by_language(
         page: params.page,
         per_page: params.per_page,
         total,
+        sort: params.sort.clone(),
+        view: params.view.clone(),
     })
 }
 
@@ -933,6 +971,8 @@ async fn html_books_by_rating(
         page: params.page,
         per_page: params.per_page,
         total,
+        sort: params.sort.clone(),
+        view: params.view.clone(),
     })
 }
 
@@ -968,6 +1008,8 @@ async fn html_books_read_in_year(
         page: params.page,
         per_page: params.per_page,
         total,
+        sort: params.sort.clone(),
+        view: params.view.clone(),
     })
 }
 

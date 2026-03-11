@@ -26,13 +26,35 @@ impl CalibreDb {
         .await
     }
 
-    /// Get all books with pagination
+    /// Get all books with pagination and sorting
     pub async fn get_books(
         &self,
         limit: i64,
         offset: i64,
+        sort: &str,
     ) -> Result<Vec<BookMetadata>, sqlx::Error> {
-        let books = sqlx::query_as::<_, Book>("SELECT * FROM books ORDER BY id LIMIT ? OFFSET ?")
+        let order_clause = match sort {
+            "title_asc" => "ORDER BY books.sort ASC",
+            "title_desc" => "ORDER BY books.sort DESC",
+            "author_asc" => {
+                "ORDER BY (SELECT name FROM authors JOIN books_authors_link ON authors.id = books_authors_link.author WHERE books_authors_link.book = books.id LIMIT 1) ASC"
+            }
+            "author_desc" => {
+                "ORDER BY (SELECT name FROM authors JOIN books_authors_link ON authors.id = books_authors_link.author WHERE books_authors_link.book = books.id LIMIT 1) DESC"
+            }
+            "date_asc" => "ORDER BY books.timestamp ASC",
+            "date_desc" => "ORDER BY books.timestamp DESC",
+            "rating_asc" => {
+                "ORDER BY (SELECT ratings.rating FROM books_ratings_link JOIN ratings ON books_ratings_link.rating = ratings.id WHERE books_ratings_link.book = books.id) ASC NULLS LAST"
+            }
+            "rating_desc" => {
+                "ORDER BY (SELECT ratings.rating FROM books_ratings_link JOIN ratings ON books_ratings_link.rating = ratings.id WHERE books_ratings_link.book = books.id) DESC NULLS LAST"
+            }
+            _ => "ORDER BY books.id",
+        };
+
+        let query = format!("SELECT * FROM books {} LIMIT ? OFFSET ?", order_clause);
+        let books = sqlx::query_as::<_, Book>(&query)
             .bind(limit)
             .bind(offset)
             .fetch_all(&self.pool)

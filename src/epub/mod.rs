@@ -66,7 +66,9 @@ fn update_opf_metadata(opf_content: &str, metadata: &BookMetadata) -> Result<Str
     let mut updated = opf_content.to_string();
 
     // Update title
-    if let Some(start) = updated.find("<dc:title>") && let Some(end) = updated[start..].find("</dc:title>") {
+    if let Some(start) = updated.find("<dc:title>")
+        && let Some(end) = updated[start..].find("</dc:title>")
+    {
         let end_pos = start + end;
         let new_title = format!("<dc:title>{}</dc:title>", escape_xml(&metadata.book.title));
         updated.replace_range(start..end_pos + 11, &new_title);
@@ -75,7 +77,9 @@ fn update_opf_metadata(opf_content: &str, metadata: &BookMetadata) -> Result<Str
     // Update authors
     if !metadata.authors.is_empty() {
         let author_name = &metadata.authors[0].name;
-        if let Some(start) = updated.find("<dc:creator") && let Some(end) = updated[start..].find("</dc:creator>") {
+        if let Some(start) = updated.find("<dc:creator")
+            && let Some(end) = updated[start..].find("</dc:creator>")
+        {
             let tag_end = updated[start..].find('>').unwrap() + start + 1;
             let close_start = start + end;
             let new_author = escape_xml(author_name);

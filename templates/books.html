@@ -5,6 +5,75 @@
 {% block content %}
 <h2>{{ title }}</h2>
 
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <form method="get" style="display: inline;">
+        <input type="hidden" name="page" value="{{ page }}">
+        <input type="hidden" name="per_page" value="{{ per_page }}">
+        <input type="hidden" name="view" value="{{ view }}">
+        <label>Sort by:</label>
+        <select name="sort" onchange="this.form.submit()">
+            <option value="">Default</option>
+            <option value="title_asc" {% if sort == "title_asc" %}selected{% endif %}>Title (A-Z)</option>
+            <option value="title_desc" {% if sort == "title_desc" %}selected{% endif %}>Title (Z-A)</option>
+            <option value="author_asc" {% if sort == "author_asc" %}selected{% endif %}>Author (A-Z)</option>
+            <option value="author_desc" {% if sort == "author_desc" %}selected{% endif %}>Author (Z-A)</option>
+            <option value="date_asc" {% if sort == "date_asc" %}selected{% endif %}>Date Added (Oldest)</option>
+            <option value="date_desc" {% if sort == "date_desc" %}selected{% endif %}>Date Added (Newest)</option>
+            <option value="rating_asc" {% if sort == "rating_asc" %}selected{% endif %}>Rating (Low-High)</option>
+            <option value="rating_desc" {% if sort == "rating_desc" %}selected{% endif %}>Rating (High-Low)</option>
+        </select>
+    </form>
+    <div>
+        <label>View:</label>
+        <a href="?page={{ page }}&per_page={{ per_page }}&sort={{ sort }}&view=list">List</a> |
+        <a href="?page={{ page }}&per_page={{ per_page }}&sort={{ sort }}&view=grid">Grid</a>
+    </div>
+</div>
+
+{% if total > per_page %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="?page={{ page - 1 }}&per_page={{ per_page }}&sort={{ sort }}&view={{ view }}">← Previous</a>
+    {% endif %}
+    <span>Page {{ page }} of {{ (total + per_page - 1) / per_page }}</span>
+    {% if page * per_page < total %}
+    <a href="?page={{ page + 1 }}&per_page={{ per_page }}&sort={{ sort }}&view={{ view }}">Next →</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if view == "grid" %}
+<div class="book-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; margin-top: 20px;">
+    {% for book in books %}
+    <div class="book-card" style="text-align: center;">
+        {% match book.book.has_cover %}
+        {% when Some with (has_cover) %}
+        {% if has_cover %}
+        <img src="/cover/{{ book.book.id }}" alt="Cover" style="width: 100%; max-width: 150px; height: auto;">
+        {% else %}
+        <div style="width: 100px; height: 150px; background: #ddd; margin: 0 auto;"></div>
+        {% endif %}
+        {% when None %}
+        <div style="width: 100px; height: 150px; background: #ddd; margin: 0 auto;"></div>
+        {% endmatch %}
+        
+        <div style="margin-top: 10px;">
+            <div style="font-weight: bold; font-size: 14px;">{{ book.book.title }}</div>
+            {% if book.authors.len() > 0 %}
+            <div style="font-size: 12px; color: #666;">
+                {% for author in book.authors %}{{ author.name }}{% if !loop.last %}, {% endif %}{% endfor %}
+            </div>
+            {% endif %}
+            <div style="margin-top: 5px;">
+                {% for format in book.formats %}
+                <a href="/download/{{ book.book.id }}/{{ format.format|lower }}" style="font-size: 11px;">{{ format.format }}</a>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
 <div class="book-list" style="margin-top: 20px;">
     {% for book in books %}
     <div class="book-item">
@@ -47,15 +116,16 @@
     </div>
     {% endfor %}
 </div>
+{% endif %}
 
 {% if total > per_page %}
 <div class="pagination">
     {% if page > 1 %}
-    <a href="?page={{ page - 1 }}&per_page={{ per_page }}">← Previous</a>
+    <a href="?page={{ page - 1 }}&per_page={{ per_page }}&sort={{ sort }}&view={{ view }}">← Previous</a>
     {% endif %}
     <span>Page {{ page }} of {{ (total + per_page - 1) / per_page }}</span>
     {% if page * per_page < total %}
-    <a href="?page={{ page + 1 }}&per_page={{ per_page }}">Next →</a>
+    <a href="?page={{ page + 1 }}&per_page={{ per_page }}&sort={{ sort }}&view={{ view }}">Next →</a>
     {% endif %}
 </div>
 {% endif %}
