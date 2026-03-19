@@ -49,7 +49,7 @@
         {% match book.book.has_cover %}
         {% when Some with (has_cover) %}
         {% if has_cover %}
-        <img src="/cover/{{ book.book.id }}" alt="Cover" style="width: 100%; max-width: 150px; height: auto;">
+        <img src="{{ prefix }}/cover/{{ book.book.id }}" alt="Cover" style="width: 100%; max-width: 150px; height: auto;">
         {% else %}
         <div style="width: 100px; height: 150px; background: #ddd; margin: 0 auto;"></div>
         {% endif %}
@@ -73,7 +73,7 @@
             </div>
             <div style="margin-top: 5px;">
                 {% for format in book.formats %}
-                <a href="/download/{{ book.book.id }}/{{ format.format|lower }}" style="font-size: 11px;">{{ format.format }}</a>
+                <a href="{{ prefix }}/download/{{ book.book.id }}/{{ format.format|lower }}" style="font-size: 11px;">{{ format.format }}</a>
                 {% endfor %}
             </div>
         </div>
@@ -87,7 +87,7 @@
         {% match book.book.has_cover %}
         {% when Some with (has_cover) %}
         {% if has_cover %}
-        <img src="/cover/{{ book.book.id }}" alt="Cover" class="book-cover">
+        <img src="{{ prefix }}/cover/{{ book.book.id }}" alt="Cover" class="book-cover">
         {% else %}
         <div class="book-cover"></div>
         {% endif %}
@@ -103,7 +103,7 @@
                 {% endif %}
                 {% match book.series_name %}
                 {% when Some with (name) %}
-                | Series: <a href="/html/series/{{ book.series_id.unwrap() }}">{{ name }}</a>
+                | Series: <a href="{{ prefix }}/html/series/{{ book.series_id.unwrap() }}">{{ name }}</a>
                 {% match book.series_index %}
                 {% when Some with (idx) %} #{{ idx }}{% when None %}{% endmatch %}
                 {% when None %}
@@ -152,7 +152,7 @@
             {% endmatch %}
             <div class="book-formats" style="margin-top: 10px;">
                 {% for format in book.formats %}
-                <a href="/download/{{ book.book.id }}/{{ format.format|lower }}">{{ format.format }}</a>
+                <a href="{{ prefix }}/download/{{ book.book.id }}/{{ format.format|lower }}">{{ format.format }}</a>
                 {% endfor %}
             </div>
         </div>

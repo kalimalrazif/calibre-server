@@ -4,59 +4,59 @@
 
 {% block content %}
 <div class="search-box">
-    <form action="/html/search" method="get">
+    <form action="{{ prefix }}/html/search" method="get">
         <input type="text" name="q" placeholder="Search books, authors, tags..." required>
     </form>
 </div>
 
 <div class="grid">
     <div class="card">
-        <h3><a href="/html/books">📖 All Books</a></h3>
+        <h3><a href="{{ prefix }}/html/books">📖 All Books</a></h3>
         <p class="count">Browse all books in the library</p>
     </div>
     
     <div class="card">
-        <h3><a href="/html/recent">🆕 Recently Added</a></h3>
+        <h3><a href="{{ prefix }}/html/recent">🆕 Recently Added</a></h3>
         <p class="count">100 most recently added books</p>
     </div>
     
     <div class="card">
-        <h3><a href="/html/authors">✍️ By Author</a></h3>
+        <h3><a href="{{ prefix }}/html/authors">✍️ By Author</a></h3>
         <p class="count">Browse books by author</p>
     </div>
     
     <div class="card">
-        <h3><a href="/html/series">📚 By Series</a></h3>
+        <h3><a href="{{ prefix }}/html/series">📚 By Series</a></h3>
         <p class="count">Browse books by series</p>
     </div>
     
     <div class="card">
-        <h3><a href="/html/tags">🏷️ By Tag</a></h3>
+        <h3><a href="{{ prefix }}/html/tags">🏷️ By Tag</a></h3>
         <p class="count">Browse books by tag/genre</p>
     </div>
     
     <div class="card">
-        <h3><a href="/html/publishers">🏢 By Publisher</a></h3>
+        <h3><a href="{{ prefix }}/html/publishers">🏢 By Publisher</a></h3>
         <p class="count">Browse books by publisher</p>
     </div>
     
     <div class="card">
-        <h3><a href="/html/languages">🌍 By Language</a></h3>
+        <h3><a href="{{ prefix }}/html/languages">🌍 By Language</a></h3>
         <p class="count">Browse books by language</p>
     </div>
     
     <div class="card">
-        <h3><a href="/html/ratings">⭐ By Rating</a></h3>
+        <h3><a href="{{ prefix }}/html/ratings">⭐ By Rating</a></h3>
         <p class="count">Browse books by rating</p>
     </div>
     
     <div class="card">
-        <h3><a href="/html/read-years">📅 First Read by Year</a></h3>
+        <h3><a href="{{ prefix }}/html/read-years">📅 First Read by Year</a></h3>
         <p class="count">Browse books by year of first reading</p>
     </div>
     
     <div class="card">
-        <h3><a href="/html/last-read-years">📅 Last Read by Year</a></h3>
+        <h3><a href="{{ prefix }}/html/last-read-years">📅 Last Read by Year</a></h3>
         <p class="count">Browse books by year of last reading</p>
     </div>
 </div>
