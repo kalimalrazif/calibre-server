@@ -8,7 +8,7 @@
 <div class="grid" style="margin-top: 20px;">
     {% for category in categories %}
     <div class="card">
-        <h3><a href="{{ base_path }}/{{ category.id }}">{{ category.name }}</a></h3>
+        <h3><a href="{{ prefix }}{{ base_path }}/{{ category.id }}">{{ category.name }}</a></h3>
         <p class="count">{{ category.count }} books</p>
     </div>
     {% endfor %}
