@@ -67,6 +67,17 @@ pub enum CustomValue {
     DateTime(String),
 }
 
+impl std::fmt::Display for CustomValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CustomValue::Text(s) | CustomValue::DateTime(s) => write!(f, "{}", s),
+            CustomValue::Int(i) => write!(f, "{}", i),
+            CustomValue::Float(v) => write!(f, "{}", v),
+            CustomValue::Bool(b) => write!(f, "{}", b),
+        }
+    }
+}
+
 /// Category for navigation
 #[derive(Debug, Clone)]
 pub struct Category {
@@ -82,6 +93,7 @@ pub struct BookMetadata {
     pub authors: Vec<Author>,
     pub formats: Vec<BookFormat>,
     pub custom_columns: HashMap<String, CustomValue>,
+    pub series_id: Option<i64>,
     pub series_name: Option<String>,
     pub series_index: Option<f64>,
     pub tags: Vec<String>,

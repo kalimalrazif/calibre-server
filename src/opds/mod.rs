@@ -118,9 +118,17 @@ impl OpdsGenerator {
         // Link to read years
         self.write_navigation_entry(
             &mut writer,
-            "Read by Year",
+            "First Read by Year",
             "/read-years",
-            Some("Browse books read by year"),
+            Some("Browse books by year of first reading"),
+        )?;
+
+        // Link to last read years
+        self.write_navigation_entry(
+            &mut writer,
+            "Last Read by Year",
+            "/last-read-years",
+            Some("Browse books by year of last reading"),
         )?;
 
         writer.write_event(Event::End(BytesEnd::new("feed")))?;

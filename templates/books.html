@@ -64,6 +64,13 @@
                 {% for author in book.authors %}{{ author.name }}{% if !loop.last %}, {% endif %}{% endfor %}
             </div>
             {% endif %}
+            <div style="font-size: 11px; margin-top: 3px;">
+                {% match book.custom_columns.get("leido") %}
+                {% when Some with (val) %}
+                {% match val %}
+                {% when CustomValue::Bool(true) %}✅{% when _ %}❌{% endmatch %}
+                {% when None %}❌{% endmatch %}
+            </div>
             <div style="margin-top: 5px;">
                 {% for format in book.formats %}
                 <a href="/download/{{ book.book.id }}/{{ format.format|lower }}" style="font-size: 11px;">{{ format.format }}</a>
@@ -96,15 +103,51 @@
                 {% endif %}
                 {% match book.series_name %}
                 {% when Some with (name) %}
-                | Series: {{ name }}
+                | Series: <a href="/html/series/{{ book.series_id.unwrap() }}">{{ name }}</a>
                 {% match book.series_index %}
                 {% when Some with (idx) %} #{{ idx }}{% when None %}{% endmatch %}
                 {% when None %}
                 {% endmatch %}
             </div>
+            {% match book.publisher %}
+            {% when Some with (pub_name) %}
+            <div class="book-meta">Publisher: {{ pub_name }}</div>
+            {% when None %}
+            {% endmatch %}
+            {% if book.tags.len() > 0 %}
+            <div class="book-meta">Tags: {% for tag in book.tags %}{{ tag }}{% if !loop.last %}, {% endif %}{% endfor %}</div>
+            {% endif %}
+            {% match book.book.pubdate %}
+            {% when Some with (date) %}
+            <div class="book-meta">Published: {{ date.format("%Y-%m-%d") }}</div>
+            {% when None %}
+            {% endmatch %}
+            <div class="book-meta">
+                {% match book.custom_columns.get("leido") %}
+                {% when Some with (val) %}
+                {% match val %}
+                {% when CustomValue::Bool(true) %}
+                ✅ Read
+                {% when _ %}
+                ❌ Unread
+                {% endmatch %}
+                {% when None %}
+                ❌ Unread
+                {% endmatch %}
+                {% match book.custom_columns.get("leidoel") %}
+                {% when Some with (val) %}
+                | Read on: {{ val|relative_date }}
+                {% when None %}
+                {% endmatch %}
+                {% match book.custom_columns.get("primera_vez") %}
+                {% when Some with (val) %}
+                | First read: {{ val|relative_date }}
+                {% when None %}
+                {% endmatch %}
+            </div>
             {% match book.comment %}
             {% when Some with (text) %}
-            <div class="book-meta" style="margin-top: 5px;">{{ text }}</div>
+            <div class="book-meta" style="margin-top: 5px;">{{ text|safe }}</div>
             {% when None %}
             {% endmatch %}
             <div class="book-formats" style="margin-top: 10px;">

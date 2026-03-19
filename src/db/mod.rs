@@ -93,7 +93,7 @@ impl CalibreDb {
         let authors = self.get_book_authors(book_id).await?;
         let formats = self.get_book_formats(book_id).await?;
         let custom_columns = self.get_book_custom_columns(book_id).await?;
-        let (series_name, series_index) = self.get_book_series(book_id).await?;
+        let (series_id, series_name, series_index) = self.get_book_series(book_id).await?;
         let tags = self.get_book_tags(book_id).await?;
         let publisher = self.get_book_publisher(book_id).await?;
         let comment = self.get_book_comment(book_id).await?;
@@ -103,6 +103,7 @@ impl CalibreDb {
             authors,
             formats,
             custom_columns,
+            series_id,
             series_name,
             series_index,
             tags,
@@ -136,9 +137,9 @@ impl CalibreDb {
     async fn get_book_series(
         &self,
         book_id: i64,
-    ) -> Result<(Option<String>, Option<f64>), sqlx::Error> {
+    ) -> Result<(Option<i64>, Option<String>, Option<f64>), sqlx::Error> {
         let row = sqlx::query(
-            "SELECT s.name, b.series_index 
+            "SELECT s.id, s.name, b.series_index 
              FROM series s 
              JOIN books_series_link bsl ON s.id = bsl.series 
              JOIN books b ON b.id = bsl.book
@@ -149,9 +150,13 @@ impl CalibreDb {
         .await?;
 
         if let Some(row) = row {
-            Ok((Some(row.get("name")), Some(row.get("series_index"))))
+            Ok((
+                Some(row.get("id")),
+                Some(row.get("name")),
+                Some(row.get("series_index")),
+            ))
         } else {
-            Ok((None, None))
+            Ok((None, None, None))
         }
     }
 
@@ -621,9 +626,30 @@ impl CalibreDb {
         Ok(result)
     }
 
-    /// Get years when books were read
-    /// Get years when books were read with counts
+    /// Get years when books were first read with counts (primera_vez)
     pub async fn get_read_years_with_counts(&self) -> Result<Vec<Category>, sqlx::Error> {
+        let rows = sqlx::query(
+            "SELECT strftime('%Y', value) as year, COUNT(*) as count 
+             FROM custom_column_3 
+             WHERE value IS NOT NULL 
+             GROUP BY year 
+             ORDER BY year DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| Category {
+                id: row.get::<String, _>("year").parse().unwrap_or(0),
+                name: row.get("year"),
+                count: row.get("count"),
+            })
+            .collect())
+    }
+
+    /// Get years when books were last read with counts (leidoel)
+    pub async fn get_last_read_years_with_counts(&self) -> Result<Vec<Category>, sqlx::Error> {
         let rows = sqlx::query(
             "SELECT strftime('%Y', value) as year, COUNT(*) as count 
              FROM custom_column_2 
@@ -655,7 +681,7 @@ impl CalibreDb {
 
         let books = sqlx::query_as::<_, Book>(
             "SELECT b.* FROM books b 
-             JOIN custom_column_2 cc ON b.id = cc.book 
+             JOIN custom_column_3 cc ON b.id = cc.book 
              WHERE strftime('%Y', cc.value) = ? 
              ORDER BY cc.value DESC 
              LIMIT ? OFFSET ?",
@@ -679,6 +705,39 @@ impl CalibreDb {
         }
 
         tracing::info!("Returning {} books with metadata", result.len());
+        Ok(result)
+    }
+
+    /// Get books last read in a specific year (leidoel)
+    pub async fn get_books_last_read_in_year(
+        &self,
+        year: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<BookMetadata>, sqlx::Error> {
+        let books = sqlx::query_as::<_, Book>(
+            "SELECT b.* FROM books b 
+             JOIN custom_column_2 cc ON b.id = cc.book 
+             WHERE strftime('%Y', cc.value) = ? 
+             ORDER BY cc.value DESC 
+             LIMIT ? OFFSET ?",
+        )
+        .bind(year)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut result = Vec::new();
+        for book in books {
+            match self.get_book_metadata(book.id).await {
+                Ok(metadata) => result.push(metadata),
+                Err(e) => {
+                    tracing::warn!("Failed to load metadata for book {}: {}", book.id, e);
+                }
+            }
+        }
+
         Ok(result)
     }
 }

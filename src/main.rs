@@ -140,6 +140,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/html/ratings/:id", get(html_books_by_rating))
         .route("/html/read-years", get(html_read_years))
         .route("/html/read-years/:year", get(html_books_read_in_year))
+        .route("/html/last-read-years", get(html_last_read_years))
+        .route(
+            "/html/last-read-years/:year",
+            get(html_books_last_read_in_year),
+        )
         // OPDS routes
         .route("/", get(root_catalog))
         .route("/search.xml", get(opensearch_descriptor))
@@ -160,6 +165,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/ratings/:id", get(books_by_rating))
         .route("/read-years", get(read_years_catalog))
         .route("/read-years/:year", get(books_read_in_year))
+        .route("/last-read-years", get(last_read_years_catalog))
+        .route("/last-read-years/:year", get(books_last_read_in_year))
         .route("/download/:id/:format", get(download_book))
         .route("/cover/:id", get(get_cover))
         .layer(CompressionLayer::new())
@@ -689,6 +696,52 @@ async fn books_read_in_year(
         .into_response())
 }
 
+/// Last read years catalog (leidoel)
+async fn last_read_years_catalog(State(state): State<AppState>) -> Result<Response, AppError> {
+    let categories = state.db.get_last_read_years_with_counts().await?;
+
+    let generator = OpdsGenerator::new(state.config.base_url());
+    let xml =
+        generator.generate_category_feed("Last Read by Year", "/last-read-years", categories)?;
+
+    Ok((
+        StatusCode::OK,
+        [(
+            header::CONTENT_TYPE,
+            "application/atom+xml;profile=opds-catalog;kind=navigation",
+        )],
+        xml,
+    )
+        .into_response())
+}
+
+/// Books last read in a specific year
+async fn books_last_read_in_year(
+    State(state): State<AppState>,
+    Path(year): Path<String>,
+    Query(params): Query<PaginationQuery>,
+) -> Result<Response, AppError> {
+    let offset = (params.page - 1) * params.per_page;
+    let books = state
+        .db
+        .get_books_last_read_in_year(&year, params.per_page, offset)
+        .await?;
+    let total = books.len() as i64;
+
+    let generator = OpdsGenerator::new(state.config.base_url());
+    let xml = generator.generate_books_feed(books, params.page, params.per_page, total)?;
+
+    Ok((
+        StatusCode::OK,
+        [(
+            header::CONTENT_TYPE,
+            "application/atom+xml;profile=opds-catalog;kind=acquisition",
+        )],
+        xml,
+    )
+        .into_response())
+}
+
 // ============================================================================
 // HTML Handlers
 // ============================================================================
@@ -983,7 +1036,7 @@ async fn html_read_years(
     let years = state.db.get_read_years_with_counts().await?;
 
     Ok(CategoriesTemplate {
-        title: "Books Read by Year".to_string(),
+        title: "First Read by Year".to_string(),
         categories: years,
         base_path: "/html/read-years".to_string(),
     })
@@ -1003,7 +1056,44 @@ async fn html_books_read_in_year(
     let total = books.len() as i64;
 
     Ok(BooksTemplate {
-        title: format!("Books Read in {}", year),
+        title: format!("First Read in {}", year),
+        books,
+        page: params.page,
+        per_page: params.per_page,
+        total,
+        sort: params.sort.clone(),
+        view: params.view.clone(),
+    })
+}
+
+/// HTML last read years list
+async fn html_last_read_years(
+    State(state): State<AppState>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let years = state.db.get_last_read_years_with_counts().await?;
+
+    Ok(CategoriesTemplate {
+        title: "Last Read by Year".to_string(),
+        categories: years,
+        base_path: "/html/last-read-years".to_string(),
+    })
+}
+
+/// HTML books last read in year
+async fn html_books_last_read_in_year(
+    State(state): State<AppState>,
+    Path(year): Path<String>,
+    Query(params): Query<PaginationQuery>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let offset = (params.page - 1) * params.per_page;
+    let books = state
+        .db
+        .get_books_last_read_in_year(&year, params.per_page, offset)
+        .await?;
+    let total = books.len() as i64;
+
+    Ok(BooksTemplate {
+        title: format!("Last Read in {}", year),
         books,
         page: params.page,
         per_page: params.per_page,

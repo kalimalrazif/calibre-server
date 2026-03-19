@@ -161,13 +161,27 @@ books.example.com {
 
 All Calibre custom columns are automatically included in OPDS feeds under the `calibre:` namespace.
 
-Example:
+### Required Custom Columns
+
+The "First Read by Year" and "Last Read by Year" features require the following custom columns in your Calibre library. You can create them in Calibre via **Preferences → Add your own columns**:
+
+| # | Column Name | Lookup Name | Type | Description |
+|---|-------------|-------------|------|-------------|
+| 1 | `leido` | `#leido` | Yes/No (bool) | Whether the book has been read |
+| 2 | `leidoel` | `#leidoel` | Date | Date the book was last read |
+| 3 | `primera_vez` | `#primera_vez` | Date | Date the book was first read |
+
+These must be created in this exact order so they map to `custom_column_1`, `custom_column_2`, and `custom_column_3` respectively in the Calibre database.
+
+> **Note:** If you don't need the read tracking features, the server will still work without these columns — the read status and year-based catalogs will simply be empty.
+
+Example OPDS output:
 ```xml
 <entry>
   <title>Book Title</title>
-  <calibre:rating>5</calibre:rating>
-  <calibre:tags>fiction, scifi</calibre:tags>
   <calibre:leido>true</calibre:leido>
+  <calibre:leidoel>2026-01-15</calibre:leidoel>
+  <calibre:primera_vez>2024-06-20</calibre:primera_vez>
   ...
 </entry>
 ```
