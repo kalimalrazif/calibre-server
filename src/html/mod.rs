@@ -45,7 +45,9 @@ mod filters {
 
 #[derive(Template)]
 #[template(path = "index.html")]
-pub struct IndexTemplate;
+pub struct IndexTemplate {
+    pub prefix: String,
+}
 
 #[derive(Template)]
 #[template(path = "categories.html")]
@@ -53,6 +55,7 @@ pub struct CategoriesTemplate {
     pub title: String,
     pub categories: Vec<Category>,
     pub base_path: String,
+    pub prefix: String,
 }
 
 #[derive(Template)]
@@ -65,4 +68,5 @@ pub struct BooksTemplate {
     pub total: i64,
     pub sort: String,
     pub view: String,
+    pub prefix: String,
 }

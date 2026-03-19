@@ -329,6 +329,17 @@ impl OpdsGenerator {
 
         // Cover image
         if book.has_cover.unwrap_or(false) {
+            // Thumbnail
+            let mut thumb = BytesStart::new("link");
+            thumb.push_attribute(("rel", "http://opds-spec.org/image/thumbnail"));
+            thumb.push_attribute((
+                "href",
+                format!("{}/cover/{}", self.base_url, book.id).as_str(),
+            ));
+            thumb.push_attribute(("type", "image/jpeg"));
+            writer.write_event(Event::Empty(thumb))?;
+
+            // Full image
             let mut link = BytesStart::new("link");
             link.push_attribute(("rel", "http://opds-spec.org/image"));
             link.push_attribute((

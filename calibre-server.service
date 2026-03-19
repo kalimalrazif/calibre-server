@@ -1,0 +1,14 @@
+[Unit]
+Description=Calibre OPDS Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+ExecStart=/usr/local/bin/calibre-server --library /path/to/calibre/library --base-url https://vps293665.vps.ovh.ca:9080/cops
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

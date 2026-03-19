@@ -747,8 +747,10 @@ async fn books_last_read_in_year(
 // ============================================================================
 
 /// HTML index page
-async fn html_index() -> impl AskamaIntoResponse {
-    IndexTemplate
+async fn html_index(State(state): State<AppState>) -> impl AskamaIntoResponse {
+    IndexTemplate {
+        prefix: state.config.url_prefix(),
+    }
 }
 
 /// HTML all books
@@ -771,6 +773,7 @@ async fn html_books(
         total,
         sort: params.sort.clone(),
         view: params.view.clone(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -789,6 +792,7 @@ async fn html_recent(
         total: 100,
         sort: params.sort.clone(),
         view: params.view.clone(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -812,6 +816,7 @@ async fn html_search(
         total,
         sort: params.sort.clone(),
         view: params.view.clone(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -823,6 +828,7 @@ async fn html_authors(State(state): State<AppState>) -> Result<impl AskamaIntoRe
         title: "Authors".to_string(),
         categories: authors,
         base_path: "/html/authors".to_string(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -847,6 +853,7 @@ async fn html_books_by_author(
         total,
         sort: params.sort.clone(),
         view: params.view.clone(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -858,6 +865,7 @@ async fn html_series(State(state): State<AppState>) -> Result<impl AskamaIntoRes
         title: "Series".to_string(),
         categories: series,
         base_path: "/html/series".to_string(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -882,6 +890,7 @@ async fn html_books_by_series(
         total,
         sort: params.sort.clone(),
         view: params.view.clone(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -893,6 +902,7 @@ async fn html_tags(State(state): State<AppState>) -> Result<impl AskamaIntoRespo
         title: "Tags".to_string(),
         categories: tags,
         base_path: "/html/tags".to_string(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -917,6 +927,7 @@ async fn html_books_by_tag(
         total,
         sort: params.sort.clone(),
         view: params.view.clone(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -930,6 +941,7 @@ async fn html_publishers(
         title: "Publishers".to_string(),
         categories: publishers,
         base_path: "/html/publishers".to_string(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -954,6 +966,7 @@ async fn html_books_by_publisher(
         total,
         sort: params.sort.clone(),
         view: params.view.clone(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -967,6 +980,7 @@ async fn html_languages(
         title: "Languages".to_string(),
         categories: languages,
         base_path: "/html/languages".to_string(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -991,6 +1005,7 @@ async fn html_books_by_language(
         total,
         sort: params.sort.clone(),
         view: params.view.clone(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -1002,6 +1017,7 @@ async fn html_ratings(State(state): State<AppState>) -> Result<impl AskamaIntoRe
         title: "Ratings".to_string(),
         categories: ratings,
         base_path: "/html/ratings".to_string(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -1026,6 +1042,7 @@ async fn html_books_by_rating(
         total,
         sort: params.sort.clone(),
         view: params.view.clone(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -1039,6 +1056,7 @@ async fn html_read_years(
         title: "First Read by Year".to_string(),
         categories: years,
         base_path: "/html/read-years".to_string(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -1063,6 +1081,7 @@ async fn html_books_read_in_year(
         total,
         sort: params.sort.clone(),
         view: params.view.clone(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -1076,6 +1095,7 @@ async fn html_last_read_years(
         title: "Last Read by Year".to_string(),
         categories: years,
         base_path: "/html/last-read-years".to_string(),
+        prefix: state.config.url_prefix(),
     })
 }
 
@@ -1100,6 +1120,7 @@ async fn html_books_last_read_in_year(
         total,
         sort: params.sort.clone(),
         view: params.view.clone(),
+        prefix: state.config.url_prefix(),
     })
 }
 

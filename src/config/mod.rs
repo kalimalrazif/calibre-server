@@ -39,4 +39,17 @@ impl Config {
             .clone()
             .unwrap_or_else(|| format!("http://{}:{}", self.host, self.port))
     }
+
+    /// Get the URL prefix path (e.g. "/cops" from "https://host:9080/cops")
+    pub fn url_prefix(&self) -> String {
+        if let Some(ref url) = self.base_url
+            && let Some(pos) = url.find("://")
+        {
+            let after_scheme = &url[pos + 3..];
+            if let Some(slash_pos) = after_scheme.find('/') {
+                return after_scheme[slash_pos..].trim_end_matches('/').to_string();
+            }
+        }
+        String::new()
+    }
 }
