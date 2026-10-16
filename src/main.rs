@@ -15,7 +15,7 @@ use axum::{
 use clap::Parser;
 use config::Config;
 use db::CalibreDb;
-use html::{BooksTemplate, CategoriesTemplate, IndexTemplate};
+use html::{BookDetailTemplate, BooksTemplate, CategoriesTemplate, IndexTemplate};
 use opds::OpdsGenerator;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -124,6 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // HTML routes
         .route("/html", get(html_index))
         .route("/html/books", get(html_books))
+        .route("/html/book/:id", get(html_book))
         .route("/html/recent", get(html_recent))
         .route("/html/search", get(html_search))
         .route("/html/authors", get(html_authors))
@@ -773,6 +774,18 @@ async fn html_books(
         total,
         sort: params.sort.clone(),
         view: params.view.clone(),
+        prefix: state.config.url_prefix(),
+    })
+}
+
+/// HTML single-book detail view
+async fn html_book(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<impl AskamaIntoResponse, AppError> {
+    let book = state.db.get_book_metadata(id).await?;
+    Ok(BookDetailTemplate {
+        book,
         prefix: state.config.url_prefix(),
     })
 }

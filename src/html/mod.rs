@@ -70,3 +70,10 @@ pub struct BooksTemplate {
     pub view: String,
     pub prefix: String,
 }
+
+#[derive(Template)]
+#[template(path = "book.html")]
+pub struct BookDetailTemplate {
+    pub book: BookMetadata,
+    pub prefix: String,
+}

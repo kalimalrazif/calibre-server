@@ -45,7 +45,7 @@
 <div class="book-grid" style="margin-top: 22px;">
     {% for book in books %}
     <div class="book-card">
-        <div class="cover-wrap">
+        <a href="{{ prefix }}/html/book/{{ book.book.id }}" class="cover-wrap">
         {% match book.book.has_cover %}
         {% when Some with (has_cover) %}
         {% if has_cover %}
@@ -53,9 +53,9 @@
         {% endif %}
         {% when None %}
         {% endmatch %}
-        </div>
+        </a>
 
-        <div class="b-title">{{ book.book.title }}</div>
+        <div class="b-title"><a href="{{ prefix }}/html/book/{{ book.book.id }}">{{ book.book.title }}</a></div>
         {% if book.authors.len() > 0 %}
         <div class="b-author">
             {% for author in book.authors %}{{ author.name }}{% if !loop.last %}, {% endif %}{% endfor %}
@@ -92,7 +92,7 @@
         {% endmatch %}
         
         <div class="book-details">
-            <div class="book-title">{{ book.book.title }}</div>
+            <div class="book-title"><a href="{{ prefix }}/html/book/{{ book.book.id }}">{{ book.book.title }}</a></div>
             {% if book.authors.len() > 0 %}
             <div class="book-author">by <strong>{% for author in book.authors %}{{ author.name }}{% if !loop.last %}, {% endif %}{% endfor %}</strong></div>
             {% endif %}

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}{{ book.book.title }} - Calibre Library{% endblock %}
+
+{% block content %}
+<a class="back-link" href="javascript:history.back()">← Back</a>
+
+<article class="book-detail">
+    <div class="detail-cover">
+        {% match book.book.has_cover %}
+        {% when Some with (has_cover) %}
+        {% if has_cover %}
+        <img src="{{ prefix }}/cover/{{ book.book.id }}" alt="Cover of {{ book.book.title }}">
+        {% else %}
+        <div class="detail-cover-ph"></div>
+        {% endif %}
+        {% when None %}
+        <div class="detail-cover-ph"></div>
+        {% endmatch %}
+    </div>
+
+    <div class="detail-main">
+        <h1 class="detail-title">{{ book.book.title }}</h1>
+        {% if book.authors.len() > 0 %}
+        <p class="detail-author">by {% for author in book.authors %}<strong>{{ author.name }}</strong>{% if !loop.last %}, {% endif %}{% endfor %}</p>
+        {% endif %}
+
+        <div class="badges">
+            {% match book.custom_columns.get("leido") %}
+            {% when Some with (val) %}
+            {% match val %}
+            {% when CustomValue::Bool(true) %}
+            <span class="badge read">✓ Read</span>
+            {% match book.custom_columns.get("leidoel") %}
+            {% when Some with (d) %}<span class="badge">Last read {{ d|relative_date }}</span>{% when None %}{% endmatch %}
+            {% match book.custom_columns.get("primera_vez") %}
+            {% when Some with (d) %}<span class="badge">First read {{ d|relative_date }}</span>{% when None %}{% endmatch %}
+            {% when _ %}
+            <span class="badge">Unread</span>
+            {% endmatch %}
+            {% when None %}
+            <span class="badge">Unread</span>
+            {% endmatch %}
+        </div>
+
+        <dl class="detail-meta">
+            {% match book.series_name %}
+            {% when Some with (name) %}
+            <dt>Series</dt>
+            <dd><a href="{{ prefix }}/html/series/{{ book.series_id.unwrap() }}">{{ name }}</a>{% match book.series_index %}{% when Some with (idx) %} #{{ idx }}{% when None %}{% endmatch %}</dd>
+            {% when None %}
+            {% endmatch %}
+            {% match book.publisher %}
+            {% when Some with (pub_name) %}
+            <dt>Publisher</dt><dd>{{ pub_name }}</dd>
+            {% when None %}
+            {% endmatch %}
+            {% match book.book.pubdate %}
+            {% when Some with (date) %}
+            <dt>Published</dt><dd>{{ date.format("%Y-%m-%d") }}</dd>
+            {% when None %}
+            {% endmatch %}
+            {% match book.book.timestamp %}
+            {% when Some with (date) %}
+            <dt>Added</dt><dd>{{ date.format("%Y-%m-%d") }}</dd>
+            {% when None %}
+            {% endmatch %}
+        </dl>
+
+        {% if book.tags.len() > 0 %}
+        <div class="tag-chips">
+            {% for tag in book.tags %}<span class="tag-chip">{{ tag }}</span>{% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="detail-downloads">
+            {% for format in book.formats %}
+            <a href="{{ prefix }}/download/{{ book.book.id }}/{{ format.format|lower }}">⬇ {{ format.format }}</a>
+            {% endfor %}
+        </div>
+    </div>
+</article>
+
+{% match book.comment %}
+{% when Some with (text) %}
+<section class="detail-description">
+    <h2>Description</h2>
+    <div class="desc-body">{{ text|safe }}</div>
+</section>
+{% when None %}
+{% endmatch %}
+{% endblock %}

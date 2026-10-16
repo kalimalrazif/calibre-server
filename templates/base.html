@@ -200,6 +200,8 @@
         }
         .book-details { flex: 1; min-width: 0; }
         .book-title { font-size: 18px; font-weight: 600; margin-bottom: 2px; letter-spacing: -.01em; }
+        .book-title a { color: var(--text); text-decoration: none; }
+        .book-title a:hover { color: var(--accent); }
         .book-author { font-size: 14px; color: var(--text-muted); margin-bottom: 10px; }
         .book-author strong { color: var(--text); font-weight: 600; }
         .book-meta { color: var(--text-muted); font-size: 14px; margin-bottom: 6px; }
@@ -259,7 +261,10 @@
             border: 1px solid var(--border);
         }
 
-        /* Description clamped to a few lines for even row height */
+        /* Description clamped to a few lines for even row height.
+           Calibre comments carry arbitrary HTML (<p>, <h*>, <div>, <b>, ...);
+           normalize all of it to one uniform style instead of rendering each
+           book's inline formatting as-is. */
         .book-desc {
             color: var(--text-muted);
             font-size: 14px;
@@ -270,7 +275,26 @@
             -webkit-box-orient: vertical;
             overflow: hidden;
         }
-        .book-desc p { margin: 0; display: inline; }
+        /* Flatten embedded markup to the base text style */
+        .book-desc * {
+            font-size: inherit !important;
+            font-weight: inherit !important;
+            color: inherit !important;
+            line-height: inherit !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            display: inline !important;
+            background: none !important;
+        }
+        /* Keep emphasis meaningful; links keep the accent */
+        .book-desc b, .book-desc strong { font-weight: 600 !important; }
+        .book-desc i, .book-desc em { font-style: italic; }
+        .book-desc a { color: var(--accent) !important; text-decoration: none; }
+        .book-desc a:hover { text-decoration: underline; }
+        /* Paragraph/heading breaks become a space so the clamp reads as prose */
+        .book-desc p::after, .book-desc br::after,
+        .book-desc h1::after, .book-desc h2::after, .book-desc h3::after,
+        .book-desc h4::after, .book-desc div::after { content: " "; }
         .book-formats { display: flex; flex-wrap: wrap; gap: 7px; }
         .book-formats a {
             display: inline-block;
@@ -295,6 +319,7 @@
         .book-card { text-align: center; }
         .book-card .cover-wrap {
             position: relative;
+            display: block;
             aspect-ratio: 2 / 3;
             border-radius: var(--radius-sm);
             overflow: hidden;
@@ -305,6 +330,8 @@
         .book-card:hover .cover-wrap { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
         .book-card .cover-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .book-card .b-title { font-weight: 600; font-size: 14px; margin-top: 11px; line-height: 1.35; }
+        .book-card .b-title a { color: var(--text); text-decoration: none; }
+        .book-card .b-title a:hover { color: var(--accent); }
         .book-card .b-author { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
         .book-card .b-formats { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; margin-top: 9px; }
         .book-card .b-formats a {
@@ -336,6 +363,88 @@
             transition: background .15s, color .15s, border-color .15s;
         }
         .pagination a:hover { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+
+        /* ---- Single-book detail view ---- */
+        .back-link {
+            display: inline-block;
+            margin-bottom: 18px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .back-link:hover { color: var(--text); }
+        .book-detail {
+            display: flex;
+            gap: 32px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 32px;
+        }
+        .detail-cover { flex-shrink: 0; width: 240px; }
+        .detail-cover img, .detail-cover-ph {
+            width: 240px;
+            aspect-ratio: 2 / 3;
+            object-fit: cover;
+            border-radius: var(--radius-sm);
+            background: var(--surface-2);
+            box-shadow: var(--shadow-lg);
+            display: block;
+        }
+        .detail-main { flex: 1; min-width: 0; }
+        .detail-title { font-size: 30px; font-weight: 700; letter-spacing: -.02em; line-height: 1.2; margin-bottom: 6px; }
+        .detail-author { font-size: 17px; color: var(--text-muted); margin-bottom: 16px; }
+        .detail-author strong { color: var(--text); font-weight: 600; }
+        .detail-meta {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 6px 16px;
+            margin: 16px 0;
+            font-size: 14px;
+        }
+        .detail-meta dt { color: var(--text-muted); font-weight: 500; }
+        .detail-meta dd { color: var(--text); }
+        .detail-meta a { color: var(--accent); text-decoration: none; }
+        .detail-meta a:hover { text-decoration: underline; }
+        .detail-downloads { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+        .detail-downloads a {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 20px;
+            background: var(--accent);
+            color: var(--accent-contrast);
+            text-decoration: none;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 14px;
+            transition: background .15s, transform .1s;
+        }
+        .detail-downloads a:hover { background: var(--accent-hover); transform: translateY(-1px); }
+
+        .detail-description {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 28px 32px;
+            margin-top: 22px;
+        }
+        .detail-description h2 { font-size: 18px; margin-bottom: 14px; }
+        .desc-body { color: var(--text); font-size: 15px; line-height: 1.7; }
+        .desc-body p { margin: 0 0 12px; }
+        .desc-body p:last-child { margin-bottom: 0; }
+        .desc-body a { color: var(--accent); }
+        .desc-body h1, .desc-body h2, .desc-body h3, .desc-body h4 {
+            font-size: 16px; font-weight: 600; margin: 16px 0 8px;
+        }
+
+        @media (max-width: 640px) {
+            .book-detail { flex-direction: column; align-items: center; text-align: center; }
+            .detail-meta { text-align: left; }
+        }
 
         @media (prefers-reduced-motion: reduce) {
             * { transition: none !important; scroll-behavior: auto !important; }
