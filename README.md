@@ -79,6 +79,37 @@ Or after building:
 ./target/release/calibre-server --library /path/to/calibre/library
 ```
 
+## Docker
+
+A multi-stage `Dockerfile` builds a statically linked (musl) binary and ships
+it on `scratch`, yielding a ~11 MB image with no OS layer.
+
+### Full stack (server + nginx) with Docker Compose
+
+`docker-compose.yml` runs the server behind nginx, mounted under `/calibre/`:
+
+```bash
+cp .env.example .env            # then set CALIBRE_LIBRARY to your library path
+docker compose up -d
+```
+
+Open <http://localhost:8088/calibre/html>. nginx is the only published port
+(loopback-only); put real TLS/auth in front of it on your host. The library is
+mounted read-only. `CALIBRE_LIBRARY` must point at the directory holding
+`metadata.db` **and** the author folders (not the source repo).
+
+### Just the image
+
+```bash
+docker build -t calibre-server .
+docker run --rm -p 8080:8080 \
+  -v /path/to/calibre/library:/library:ro \
+  calibre-server
+```
+
+The image sets `HOST=0.0.0.0`, `PORT=8080`, `CALIBRE_LIBRARY_PATH=/library`;
+pass `-e BASE_URL=https://host/subpath` when running behind a reverse proxy.
+
 ## Accessing the Server
 
 ### HTML Interface

@@ -1,0 +1,18 @@
+# Build artifacts and VCS — never needed in the image build context
+/target
+.git
+.gitignore
+
+# Agent / editor config
+.kiro
+
+# Local data and secrets
+*.db
+*.db-journal
+.env
+.poc-server.log
+
+# Docker files themselves
+Dockerfile
+.dockerignore
+docker-compose.yml
