@@ -224,7 +224,7 @@ async fn search_books(
         .db
         .search_books(&params.q, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_search(&params.q).await?;
 
     let generator = OpdsGenerator::new(state.config.base_url());
     let xml = generator.generate_books_feed(books, params.page, params.per_page, total)?;
@@ -415,7 +415,7 @@ async fn books_by_author(
         .db
         .get_books_by_author(id, params.per_page, offset)
         .await?;
-    let total = books.len() as i64; // Simplified, should query count
+    let total = state.db.count_books_by_author(id).await?;
 
     let generator = OpdsGenerator::new(state.config.base_url());
     let xml = generator.generate_books_feed(books, params.page, params.per_page, total)?;
@@ -459,7 +459,7 @@ async fn books_by_series(
         .db
         .get_books_by_series(id, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_by_series(id).await?;
 
     let generator = OpdsGenerator::new(state.config.base_url());
     let xml = generator.generate_books_feed(books, params.page, params.per_page, total)?;
@@ -503,7 +503,7 @@ async fn books_by_tag(
         .db
         .get_books_by_tag(id, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_by_tag(id).await?;
 
     let generator = OpdsGenerator::new(state.config.base_url());
     let xml = generator.generate_books_feed(books, params.page, params.per_page, total)?;
@@ -547,7 +547,7 @@ async fn books_by_publisher(
         .db
         .get_books_by_publisher(id, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_by_publisher(id).await?;
 
     let generator = OpdsGenerator::new(state.config.base_url());
     let xml = generator.generate_books_feed(books, params.page, params.per_page, total)?;
@@ -591,7 +591,7 @@ async fn books_by_language(
         .db
         .get_books_by_language(id, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_by_language(id).await?;
 
     let generator = OpdsGenerator::new(state.config.base_url());
     let xml = generator.generate_books_feed(books, params.page, params.per_page, total)?;
@@ -635,7 +635,7 @@ async fn books_by_rating(
         .db
         .get_books_by_rating(id, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_by_rating(id).await?;
 
     let generator = OpdsGenerator::new(state.config.base_url());
     let xml = generator.generate_books_feed(books, params.page, params.per_page, total)?;
@@ -680,7 +680,7 @@ async fn books_read_in_year(
         .db
         .get_books_read_in_year(&year, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_read_in_year(&year).await?;
 
     let generator = OpdsGenerator::new(state.config.base_url());
     let xml = generator.generate_books_feed(books, params.page, params.per_page, total)?;
@@ -726,7 +726,7 @@ async fn books_last_read_in_year(
         .db
         .get_books_last_read_in_year(&year, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_last_read_in_year(&year).await?;
 
     let generator = OpdsGenerator::new(state.config.base_url());
     let xml = generator.generate_books_feed(books, params.page, params.per_page, total)?;
@@ -783,13 +783,14 @@ async fn html_recent(
     Query(params): Query<PaginationQuery>,
 ) -> Result<impl AskamaIntoResponse, AppError> {
     let books = state.db.get_recent_books(100).await?;
+    let total = books.len() as i64;
 
     Ok(BooksTemplate {
         title: "Recently Added".to_string(),
         books,
         page: 1,
         per_page: 100,
-        total: 100,
+        total,
         sort: params.sort.clone(),
         view: params.view.clone(),
         prefix: state.config.url_prefix(),
@@ -806,7 +807,7 @@ async fn html_search(
         .db
         .search_books(&params.q, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_search(&params.q).await?;
 
     Ok(BooksTemplate {
         title: format!("Search results for '{}'", params.q),
@@ -880,7 +881,7 @@ async fn html_books_by_series(
         .db
         .get_books_by_series(id, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_by_series(id).await?;
 
     Ok(BooksTemplate {
         title: "Books in Series".to_string(),
@@ -917,7 +918,7 @@ async fn html_books_by_tag(
         .db
         .get_books_by_tag(id, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_by_tag(id).await?;
 
     Ok(BooksTemplate {
         title: "Books with Tag".to_string(),
@@ -956,7 +957,7 @@ async fn html_books_by_publisher(
         .db
         .get_books_by_publisher(id, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_by_publisher(id).await?;
 
     Ok(BooksTemplate {
         title: "Books by Publisher".to_string(),
@@ -995,7 +996,7 @@ async fn html_books_by_language(
         .db
         .get_books_by_language(id, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_by_language(id).await?;
 
     Ok(BooksTemplate {
         title: "Books in Language".to_string(),
@@ -1032,7 +1033,7 @@ async fn html_books_by_rating(
         .db
         .get_books_by_rating(id, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_by_rating(id).await?;
 
     Ok(BooksTemplate {
         title: "Books with Rating".to_string(),
@@ -1071,7 +1072,7 @@ async fn html_books_read_in_year(
         .db
         .get_books_read_in_year(&year, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_read_in_year(&year).await?;
 
     Ok(BooksTemplate {
         title: format!("First Read in {}", year),
@@ -1110,7 +1111,7 @@ async fn html_books_last_read_in_year(
         .db
         .get_books_last_read_in_year(&year, params.per_page, offset)
         .await?;
-    let total = books.len() as i64;
+    let total = state.db.count_books_last_read_in_year(&year).await?;
 
     Ok(BooksTemplate {
         title: format!("Last Read in {}", year),
