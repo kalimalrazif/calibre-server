@@ -4,26 +4,234 @@ use models::{Author, Book, BookFormat, BookMetadata, Category, CustomColumn, Cus
 use sqlx::{Row, sqlite::SqlitePool};
 use std::collections::HashMap;
 
+/// (series_id, series_name, series_index) for a book.
+type SeriesInfo = (Option<i64>, Option<String>, Option<f64>);
+
 /// Database connection and query methods
 pub struct CalibreDb {
     pool: SqlitePool,
+    /// Custom column definitions, cached at connect time.
+    /// Calibre's column *definitions* don't change while the server runs,
+    /// so loading them once avoids re-querying `custom_columns` per book.
+    custom_columns: Vec<CustomColumn>,
 }
 
 impl CalibreDb {
     /// Connect to Calibre database
     pub async fn connect(db_path: &str) -> Result<Self, sqlx::Error> {
         let pool = SqlitePool::connect(&format!("sqlite://{}?mode=ro", db_path)).await?;
-        Ok(Self { pool })
+        // Cache custom column definitions once; absence of the table is not fatal.
+        let custom_columns = sqlx::query_as::<_, CustomColumn>(
+            "SELECT id, label, name, datatype, mark_for_delete, editable, display, is_multiple, normalized
+             FROM custom_columns",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_default();
+        Ok(Self {
+            pool,
+            custom_columns,
+        })
     }
 
-    /// Get all custom column definitions
-    pub async fn get_custom_columns(&self) -> Result<Vec<CustomColumn>, sqlx::Error> {
-        sqlx::query_as::<_, CustomColumn>(
-            "SELECT id, label, name, datatype, mark_for_delete, editable, display, is_multiple, normalized 
-             FROM custom_columns"
-        )
-        .fetch_all(&self.pool)
-        .await
+    /// Load full metadata for a set of books in bulk.
+    ///
+    /// This replaces the old per-book fan-out (7 queries per book) with a
+    /// fixed number of batched queries using `WHERE book IN (...)`, then
+    /// stitches the related rows back onto each book in memory. For a page of
+    /// N books this is a handful of round-trips instead of ~7*N.
+    ///
+    /// Order of the input `books` is preserved in the output.
+    async fn load_metadata_batch(
+        &self,
+        books: Vec<Book>,
+    ) -> Result<Vec<BookMetadata>, sqlx::Error> {
+        if books.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let ids: Vec<i64> = books.iter().map(|b| b.id).collect();
+        // SQLite has no array binding; build "?,?,?" and bind each id.
+        let placeholders = std::iter::repeat_n("?", ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        // Helpers to run a batched "WHERE book IN (...)" query, binding each
+        // id. They take the SQL by value (`String`) so it outlives the query
+        // builder — a `&format!(...)` temporary would be dropped too early.
+        macro_rules! fetch_dyn {
+            ($sql:expr) => {{
+                let sql: String = $sql;
+                let mut q = sqlx::query(&sql);
+                for id in &ids {
+                    q = q.bind(id);
+                }
+                q.fetch_all(&self.pool).await
+            }};
+        }
+        macro_rules! fetch_as {
+            ($ty:ty, $sql:expr) => {{
+                let sql: String = $sql;
+                let mut q = sqlx::query_as::<_, $ty>(&sql);
+                for id in &ids {
+                    q = q.bind(id);
+                }
+                q.fetch_all(&self.pool).await
+            }};
+        }
+
+        // --- Authors (ordered by link id to keep Calibre's author order) ---
+        let author_rows = fetch_dyn!(format!(
+            "SELECT bal.book AS book, a.id, a.name, a.sort, a.link
+             FROM authors a
+             JOIN books_authors_link bal ON a.id = bal.author
+             WHERE bal.book IN ({placeholders})
+             ORDER BY bal.id"
+        ))?;
+        let mut authors_by_book: HashMap<i64, Vec<Author>> = HashMap::new();
+        for row in author_rows {
+            authors_by_book
+                .entry(row.get("book"))
+                .or_default()
+                .push(Author {
+                    id: row.get("id"),
+                    name: row.get("name"),
+                    sort: row.get("sort"),
+                    link: row.get("link"),
+                });
+        }
+
+        // --- Formats ---
+        let format_rows = fetch_as!(
+            BookFormat,
+            format!("SELECT * FROM data WHERE book IN ({placeholders})")
+        )?;
+        let mut formats_by_book: HashMap<i64, Vec<BookFormat>> = HashMap::new();
+        for f in format_rows {
+            formats_by_book.entry(f.book).or_default().push(f);
+        }
+
+        // --- Tags (ordered by name) ---
+        let tag_rows = fetch_dyn!(format!(
+            "SELECT btl.book AS book, t.name
+             FROM tags t
+             JOIN books_tags_link btl ON t.id = btl.tag
+             WHERE btl.book IN ({placeholders})
+             ORDER BY t.name"
+        ))?;
+        let mut tags_by_book: HashMap<i64, Vec<String>> = HashMap::new();
+        for row in tag_rows {
+            tags_by_book
+                .entry(row.get("book"))
+                .or_default()
+                .push(row.get("name"));
+        }
+
+        // --- Series ---
+        let series_rows = fetch_dyn!(format!(
+            "SELECT bsl.book AS book, s.id, s.name, b.series_index
+             FROM series s
+             JOIN books_series_link bsl ON s.id = bsl.series
+             JOIN books b ON b.id = bsl.book
+             WHERE bsl.book IN ({placeholders})"
+        ))?;
+        let mut series_by_book: HashMap<i64, SeriesInfo> = HashMap::new();
+        for row in series_rows {
+            series_by_book.insert(
+                row.get("book"),
+                (
+                    Some(row.get("id")),
+                    Some(row.get("name")),
+                    Some(row.get("series_index")),
+                ),
+            );
+        }
+
+        // --- Publisher ---
+        let publisher_rows = fetch_dyn!(format!(
+            "SELECT bpl.book AS book, p.name
+             FROM publishers p
+             JOIN books_publishers_link bpl ON p.id = bpl.publisher
+             WHERE bpl.book IN ({placeholders})"
+        ))?;
+        let mut publisher_by_book: HashMap<i64, String> = HashMap::new();
+        for row in publisher_rows {
+            publisher_by_book.insert(row.get("book"), row.get("name"));
+        }
+
+        // --- Comments ---
+        let comment_rows = fetch_dyn!(format!(
+            "SELECT book, text FROM comments WHERE book IN ({placeholders})"
+        ))?;
+        let mut comment_by_book: HashMap<i64, String> = HashMap::new();
+        for row in comment_rows {
+            comment_by_book.insert(row.get("book"), row.get("text"));
+        }
+
+        // --- Custom columns (one query per non-deleted column, over all books) ---
+        let mut custom_by_book: HashMap<i64, HashMap<String, CustomValue>> = HashMap::new();
+        for col in &self.custom_columns {
+            if col.mark_for_delete {
+                continue;
+            }
+            let table_name = format!("custom_column_{}", col.id);
+            // Table may not exist / be readable; skip the column on error.
+            let rows = match fetch_dyn!(format!(
+                "SELECT book, value FROM {table_name} WHERE book IN ({placeholders})"
+            )) {
+                Ok(rows) => rows,
+                Err(_) => continue,
+            };
+            for row in rows {
+                let book_id: i64 = row.get("book");
+                let value = match col.datatype.as_str() {
+                    "text" | "comments" | "series" | "enumeration" => row
+                        .try_get::<String, _>("value")
+                        .ok()
+                        .map(CustomValue::Text),
+                    "int" | "rating" => row.try_get::<i64, _>("value").ok().map(CustomValue::Int),
+                    "float" => row.try_get::<f64, _>("value").ok().map(CustomValue::Float),
+                    "bool" => row.try_get::<bool, _>("value").ok().map(CustomValue::Bool),
+                    "datetime" => row
+                        .try_get::<String, _>("value")
+                        .ok()
+                        .map(CustomValue::DateTime),
+                    _ => None,
+                };
+                if let Some(value) = value {
+                    custom_by_book
+                        .entry(book_id)
+                        .or_default()
+                        .insert(col.label.clone(), value);
+                }
+            }
+        }
+
+        // --- Stitch everything back together, preserving input order ---
+        let result = books
+            .into_iter()
+            .map(|book| {
+                let id = book.id;
+                let (series_id, series_name, series_index) = series_by_book
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or((None, None, None));
+                BookMetadata {
+                    book,
+                    authors: authors_by_book.remove(&id).unwrap_or_default(),
+                    formats: formats_by_book.remove(&id).unwrap_or_default(),
+                    custom_columns: custom_by_book.remove(&id).unwrap_or_default(),
+                    series_id,
+                    series_name,
+                    series_index,
+                    tags: tags_by_book.remove(&id).unwrap_or_default(),
+                    publisher: publisher_by_book.remove(&id),
+                    comment: comment_by_book.remove(&id),
+                }
+            })
+            .collect();
+
+        Ok(result)
     }
 
     /// Get all books with pagination and sorting
@@ -60,18 +268,7 @@ impl CalibreDb {
             .fetch_all(&self.pool)
             .await?;
 
-        let mut result = Vec::new();
-        for book in books {
-            match self.get_book_metadata(book.id).await {
-                Ok(metadata) => result.push(metadata),
-                Err(e) => {
-                    tracing::warn!("Failed to load metadata for book {}: {}", book.id, e);
-                    // Continue with next book instead of failing
-                }
-            }
-        }
-
-        Ok(result)
+        self.load_metadata_batch(books).await
     }
 
     /// Get books filtered by read status
@@ -90,179 +287,11 @@ impl CalibreDb {
             .fetch_one(&self.pool)
             .await?;
 
-        let authors = self.get_book_authors(book_id).await?;
-        let formats = self.get_book_formats(book_id).await?;
-        let custom_columns = self.get_book_custom_columns(book_id).await?;
-        let (series_id, series_name, series_index) = self.get_book_series(book_id).await?;
-        let tags = self.get_book_tags(book_id).await?;
-        let publisher = self.get_book_publisher(book_id).await?;
-        let comment = self.get_book_comment(book_id).await?;
-
-        Ok(BookMetadata {
-            book,
-            authors,
-            formats,
-            custom_columns,
-            series_id,
-            series_name,
-            series_index,
-            tags,
-            publisher,
-            comment,
-        })
-    }
-
-    /// Get authors for a book
-    async fn get_book_authors(&self, book_id: i64) -> Result<Vec<Author>, sqlx::Error> {
-        sqlx::query_as::<_, Author>(
-            "SELECT a.* FROM authors a 
-             JOIN books_authors_link bal ON a.id = bal.author 
-             WHERE bal.book = ? 
-             ORDER BY bal.id",
-        )
-        .bind(book_id)
-        .fetch_all(&self.pool)
-        .await
-    }
-
-    /// Get formats for a book
-    async fn get_book_formats(&self, book_id: i64) -> Result<Vec<BookFormat>, sqlx::Error> {
-        sqlx::query_as::<_, BookFormat>("SELECT * FROM data WHERE book = ?")
-            .bind(book_id)
-            .fetch_all(&self.pool)
-            .await
-    }
-
-    /// Get series info for a book
-    async fn get_book_series(
-        &self,
-        book_id: i64,
-    ) -> Result<(Option<i64>, Option<String>, Option<f64>), sqlx::Error> {
-        let row = sqlx::query(
-            "SELECT s.id, s.name, b.series_index 
-             FROM series s 
-             JOIN books_series_link bsl ON s.id = bsl.series 
-             JOIN books b ON b.id = bsl.book
-             WHERE bsl.book = ?",
-        )
-        .bind(book_id)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        if let Some(row) = row {
-            Ok((
-                Some(row.get("id")),
-                Some(row.get("name")),
-                Some(row.get("series_index")),
-            ))
-        } else {
-            Ok((None, None, None))
-        }
-    }
-
-    /// Get tags for a book
-    async fn get_book_tags(&self, book_id: i64) -> Result<Vec<String>, sqlx::Error> {
-        let rows = sqlx::query(
-            "SELECT t.name 
-             FROM tags t 
-             JOIN books_tags_link btl ON t.id = btl.tag 
-             WHERE btl.book = ? 
-             ORDER BY t.name",
-        )
-        .bind(book_id)
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(rows.into_iter().map(|row| row.get("name")).collect())
-    }
-
-    /// Get publisher for a book
-    async fn get_book_publisher(&self, book_id: i64) -> Result<Option<String>, sqlx::Error> {
-        let row = sqlx::query(
-            "SELECT p.name 
-             FROM publishers p 
-             JOIN books_publishers_link bpl ON p.id = bpl.publisher 
-             WHERE bpl.book = ?",
-        )
-        .bind(book_id)
-        .fetch_optional(&self.pool)
-        .await?;
-
-        Ok(row.map(|r| r.get("name")))
-    }
-
-    /// Get comment/synopsis for a book
-    async fn get_book_comment(&self, book_id: i64) -> Result<Option<String>, sqlx::Error> {
-        let row = sqlx::query("SELECT text FROM comments WHERE book = ?")
-            .bind(book_id)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        Ok(row.map(|r| r.get("text")))
-    }
-
-    /// Get custom column values for a book
-    async fn get_book_custom_columns(
-        &self,
-        book_id: i64,
-    ) -> Result<HashMap<String, CustomValue>, sqlx::Error> {
-        let columns = match self.get_custom_columns().await {
-            Ok(cols) => cols,
-            Err(_) => return Ok(HashMap::new()), // No custom columns or error reading them
-        };
-        let mut result = HashMap::new();
-
-        for col in columns {
-            if col.mark_for_delete {
-                continue;
-            }
-
-            let table_name = format!("custom_column_{}", col.id);
-            // Ignore errors for individual columns
-            if let Ok(Some(val)) = self
-                .get_custom_column_value(book_id, &table_name, &col.datatype)
-                .await
-            {
-                result.insert(col.label.clone(), val);
-            }
-        }
-
-        Ok(result)
-    }
-
-    /// Get a single custom column value
-    async fn get_custom_column_value(
-        &self,
-        book_id: i64,
-        table_name: &str,
-        datatype: &str,
-    ) -> Result<Option<CustomValue>, sqlx::Error> {
-        let query = format!("SELECT value FROM {} WHERE book = ?", table_name);
-
-        let row = sqlx::query(&query)
-            .bind(book_id)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        if let Some(row) = row {
-            let value = match datatype {
-                "text" | "comments" | "series" | "enumeration" => row
-                    .try_get::<String, _>("value")
-                    .ok()
-                    .map(CustomValue::Text),
-                "int" | "rating" => row.try_get::<i64, _>("value").ok().map(CustomValue::Int),
-                "float" => row.try_get::<f64, _>("value").ok().map(CustomValue::Float),
-                "bool" => row.try_get::<bool, _>("value").ok().map(CustomValue::Bool),
-                "datetime" => row
-                    .try_get::<String, _>("value")
-                    .ok()
-                    .map(CustomValue::DateTime),
-                _ => None,
-            };
-            Ok(value)
-        } else {
-            Ok(None)
-        }
+        // Reuse the batched loader so single-book and list paths share one code path.
+        self.load_metadata_batch(vec![book])
+            .await?
+            .pop()
+            .ok_or(sqlx::Error::RowNotFound)
     }
 
     /// Get all authors with book count
@@ -307,13 +336,7 @@ impl CalibreDb {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut result = Vec::new();
-        for book in books {
-            if let Ok(metadata) = self.get_book_metadata(book.id).await {
-                result.push(metadata);
-            }
-        }
-        Ok(result)
+        self.load_metadata_batch(books).await
     }
 
     /// Get all series with book count
@@ -358,13 +381,7 @@ impl CalibreDb {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut result = Vec::new();
-        for book in books {
-            if let Ok(metadata) = self.get_book_metadata(book.id).await {
-                result.push(metadata);
-            }
-        }
-        Ok(result)
+        self.load_metadata_batch(books).await
     }
 
     /// Get all tags with book count
@@ -409,13 +426,7 @@ impl CalibreDb {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut result = Vec::new();
-        for book in books {
-            if let Ok(metadata) = self.get_book_metadata(book.id).await {
-                result.push(metadata);
-            }
-        }
-        Ok(result)
+        self.load_metadata_batch(books).await
     }
 
     /// Get all publishers with book count
@@ -460,13 +471,7 @@ impl CalibreDb {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut result = Vec::new();
-        for book in books {
-            if let Ok(metadata) = self.get_book_metadata(book.id).await {
-                result.push(metadata);
-            }
-        }
-        Ok(result)
+        self.load_metadata_batch(books).await
     }
 
     /// Get all languages with book count
@@ -511,13 +516,7 @@ impl CalibreDb {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut result = Vec::new();
-        for book in books {
-            if let Ok(metadata) = self.get_book_metadata(book.id).await {
-                result.push(metadata);
-            }
-        }
-        Ok(result)
+        self.load_metadata_batch(books).await
     }
 
     /// Get all ratings with book count
@@ -562,13 +561,7 @@ impl CalibreDb {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut result = Vec::new();
-        for book in books {
-            if let Ok(metadata) = self.get_book_metadata(book.id).await {
-                result.push(metadata);
-            }
-        }
-        Ok(result)
+        self.load_metadata_batch(books).await
     }
 
     /// Get recently added books
@@ -579,13 +572,7 @@ impl CalibreDb {
                 .fetch_all(&self.pool)
                 .await?;
 
-        let mut result = Vec::new();
-        for book in books {
-            if let Ok(metadata) = self.get_book_metadata(book.id).await {
-                result.push(metadata);
-            }
-        }
-        Ok(result)
+        self.load_metadata_batch(books).await
     }
 
     /// Search books by title, author, or tags
@@ -617,13 +604,7 @@ impl CalibreDb {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut result = Vec::new();
-        for book in books {
-            if let Ok(metadata) = self.get_book_metadata(book.id).await {
-                result.push(metadata);
-            }
-        }
-        Ok(result)
+        self.load_metadata_batch(books).await
     }
 
     /// Get years when books were first read with counts (primera_vez)
@@ -694,15 +675,7 @@ impl CalibreDb {
 
         tracing::info!("Found {} books for year {}", books.len(), year);
 
-        let mut result = Vec::new();
-        for book in books {
-            match self.get_book_metadata(book.id).await {
-                Ok(metadata) => result.push(metadata),
-                Err(e) => {
-                    tracing::warn!("Failed to load metadata for book {}: {}", book.id, e);
-                }
-            }
-        }
+        let result = self.load_metadata_batch(books).await?;
 
         tracing::info!("Returning {} books with metadata", result.len());
         Ok(result)
@@ -728,16 +701,101 @@ impl CalibreDb {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut result = Vec::new();
-        for book in books {
-            match self.get_book_metadata(book.id).await {
-                Ok(metadata) => result.push(metadata),
-                Err(e) => {
-                    tracing::warn!("Failed to load metadata for book {}: {}", book.id, e);
-                }
-            }
-        }
+        self.load_metadata_batch(books).await
+    }
 
-        Ok(result)
+    // ------------------------------------------------------------------
+    // Count helpers: return the TOTAL number of books matching a filter
+    // (not just the current page), so the paginator can emit next/prev
+    // links and show the real total.
+    // ------------------------------------------------------------------
+
+    /// Count books linked to an author.
+    pub async fn count_books_by_author(&self, author_id: i64) -> Result<i64, sqlx::Error> {
+        self.count_by_link("books_authors_link", "author", author_id)
+            .await
+    }
+
+    /// Count books in a series.
+    pub async fn count_books_by_series(&self, series_id: i64) -> Result<i64, sqlx::Error> {
+        self.count_by_link("books_series_link", "series", series_id)
+            .await
+    }
+
+    /// Count books with a tag.
+    pub async fn count_books_by_tag(&self, tag_id: i64) -> Result<i64, sqlx::Error> {
+        self.count_by_link("books_tags_link", "tag", tag_id).await
+    }
+
+    /// Count books by a publisher.
+    pub async fn count_books_by_publisher(&self, publisher_id: i64) -> Result<i64, sqlx::Error> {
+        self.count_by_link("books_publishers_link", "publisher", publisher_id)
+            .await
+    }
+
+    /// Count books in a language.
+    pub async fn count_books_by_language(&self, language_id: i64) -> Result<i64, sqlx::Error> {
+        self.count_by_link("books_languages_link", "lang_code", language_id)
+            .await
+    }
+
+    /// Count books with a rating.
+    pub async fn count_books_by_rating(&self, rating_id: i64) -> Result<i64, sqlx::Error> {
+        self.count_by_link("books_ratings_link", "rating", rating_id)
+            .await
+    }
+
+    /// Shared COUNT over a Calibre `books_*_link` table.
+    ///
+    /// `table` and `column` are hard-coded identifiers from the call sites
+    /// above (never user input), so interpolating them is safe; the filter
+    /// value is still a bound parameter.
+    async fn count_by_link(&self, table: &str, column: &str, id: i64) -> Result<i64, sqlx::Error> {
+        let query = format!("SELECT COUNT(*) AS count FROM {table} WHERE {column} = ?");
+        let row = sqlx::query(&query).bind(id).fetch_one(&self.pool).await?;
+        Ok(row.get("count"))
+    }
+
+    /// Count books matching a search query (same predicate as `search_books`).
+    pub async fn count_search(&self, query: &str) -> Result<i64, sqlx::Error> {
+        let search_pattern = format!("%{}%", query);
+        let row = sqlx::query(
+            "SELECT COUNT(DISTINCT b.id) AS count FROM books b
+             LEFT JOIN books_authors_link bal ON b.id = bal.book
+             LEFT JOIN authors a ON a.id = bal.author
+             LEFT JOIN books_tags_link btl ON b.id = btl.book
+             LEFT JOIN tags t ON t.id = btl.tag
+             WHERE b.title LIKE ? COLLATE NOCASE
+                OR a.name LIKE ? COLLATE NOCASE
+                OR t.name LIKE ? COLLATE NOCASE",
+        )
+        .bind(&search_pattern)
+        .bind(&search_pattern)
+        .bind(&search_pattern)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.get("count"))
+    }
+
+    /// Count books first-read in a given year (custom_column_3).
+    pub async fn count_books_read_in_year(&self, year: &str) -> Result<i64, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT COUNT(*) AS count FROM custom_column_3 WHERE strftime('%Y', value) = ?",
+        )
+        .bind(year)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.get("count"))
+    }
+
+    /// Count books last-read in a given year (custom_column_2).
+    pub async fn count_books_last_read_in_year(&self, year: &str) -> Result<i64, sqlx::Error> {
+        let row = sqlx::query(
+            "SELECT COUNT(*) AS count FROM custom_column_2 WHERE strftime('%Y', value) = ?",
+        )
+        .bind(year)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.get("count"))
     }
 }
