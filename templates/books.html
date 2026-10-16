@@ -5,7 +5,7 @@
 {% block content %}
 <h2>{{ title }}</h2>
 
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+<div class="toolbar">
     <form method="get" style="display: inline;">
         <input type="hidden" name="page" value="{{ page }}">
         <input type="hidden" name="per_page" value="{{ per_page }}">
@@ -23,10 +23,9 @@
             <option value="rating_desc" {% if sort == "rating_desc" %}selected{% endif %}>Rating (High-Low)</option>
         </select>
     </form>
-    <div>
-        <label>View:</label>
-        <a href="?page={{ page }}&per_page={{ per_page }}&sort={{ sort }}&view=list">List</a> |
-        <a href="?page={{ page }}&per_page={{ per_page }}&sort={{ sort }}&view=grid">Grid</a>
+    <div class="view-toggle">
+        <a href="?page={{ page }}&per_page={{ per_page }}&sort={{ sort }}&view=list" {% if view != "grid" %}class="active"{% endif %}>List</a>
+        <a href="?page={{ page }}&per_page={{ per_page }}&sort={{ sort }}&view=grid" {% if view == "grid" %}class="active"{% endif %}>Grid</a>
     </div>
 </div>
 
@@ -43,51 +42,48 @@
 {% endif %}
 
 {% if view == "grid" %}
-<div class="book-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px; margin-top: 20px;">
+<div class="book-grid" style="margin-top: 22px;">
     {% for book in books %}
-    <div class="book-card" style="text-align: center;">
+    <div class="book-card">
+        <div class="cover-wrap">
         {% match book.book.has_cover %}
         {% when Some with (has_cover) %}
         {% if has_cover %}
-        <img src="{{ prefix }}/cover/{{ book.book.id }}" alt="Cover" style="width: 100%; max-width: 150px; height: auto;">
-        {% else %}
-        <div style="width: 100px; height: 150px; background: #ddd; margin: 0 auto;"></div>
+        <img src="{{ prefix }}/cover/{{ book.book.id }}" alt="Cover of {{ book.book.title }}" loading="lazy">
         {% endif %}
         {% when None %}
-        <div style="width: 100px; height: 150px; background: #ddd; margin: 0 auto;"></div>
         {% endmatch %}
-        
-        <div style="margin-top: 10px;">
-            <div style="font-weight: bold; font-size: 14px;">{{ book.book.title }}</div>
-            {% if book.authors.len() > 0 %}
-            <div style="font-size: 12px; color: #666;">
-                {% for author in book.authors %}{{ author.name }}{% if !loop.last %}, {% endif %}{% endfor %}
-            </div>
-            {% endif %}
-            <div style="font-size: 11px; margin-top: 3px;">
-                {% match book.custom_columns.get("leido") %}
-                {% when Some with (val) %}
-                {% match val %}
-                {% when CustomValue::Bool(true) %}✅{% when _ %}❌{% endmatch %}
-                {% when None %}❌{% endmatch %}
-            </div>
-            <div style="margin-top: 5px;">
-                {% for format in book.formats %}
-                <a href="{{ prefix }}/download/{{ book.book.id }}/{{ format.format|lower }}" style="font-size: 11px;">{{ format.format }}</a>
-                {% endfor %}
-            </div>
+        </div>
+
+        <div class="b-title">{{ book.book.title }}</div>
+        {% if book.authors.len() > 0 %}
+        <div class="b-author">
+            {% for author in book.authors %}{{ author.name }}{% if !loop.last %}, {% endif %}{% endfor %}
+        </div>
+        {% endif %}
+        <div style="font-size: 12px; margin-top: 4px;">
+            {% match book.custom_columns.get("leido") %}
+            {% when Some with (val) %}
+            {% match val %}
+            {% when CustomValue::Bool(true) %}✅{% when _ %}❌{% endmatch %}
+            {% when None %}❌{% endmatch %}
+        </div>
+        <div class="b-formats">
+            {% for format in book.formats %}
+            <a href="{{ prefix }}/download/{{ book.book.id }}/{{ format.format|lower }}">{{ format.format }}</a>
+            {% endfor %}
         </div>
     </div>
     {% endfor %}
 </div>
 {% else %}
-<div class="book-list" style="margin-top: 20px;">
+<div class="book-list" style="margin-top: 22px;">
     {% for book in books %}
     <div class="book-item">
         {% match book.book.has_cover %}
         {% when Some with (has_cover) %}
         {% if has_cover %}
-        <img src="{{ prefix }}/cover/{{ book.book.id }}" alt="Cover" class="book-cover">
+        <img src="{{ prefix }}/cover/{{ book.book.id }}" alt="Cover of {{ book.book.title }}" class="book-cover" loading="lazy">
         {% else %}
         <div class="book-cover"></div>
         {% endif %}
@@ -97,60 +93,65 @@
         
         <div class="book-details">
             <div class="book-title">{{ book.book.title }}</div>
-            <div class="book-meta">
-                {% if book.authors.len() > 0 %}
-                by {% for author in book.authors %}{{ author.name }}{% if !loop.last %}, {% endif %}{% endfor %}
-                {% endif %}
+            {% if book.authors.len() > 0 %}
+            <div class="book-author">by <strong>{% for author in book.authors %}{{ author.name }}{% if !loop.last %}, {% endif %}{% endfor %}</strong></div>
+            {% endif %}
+
+            <div class="meta-row">
                 {% match book.series_name %}
                 {% when Some with (name) %}
-                | Series: <a href="{{ prefix }}/html/series/{{ book.series_id.unwrap() }}">{{ name }}</a>
-                {% match book.series_index %}
-                {% when Some with (idx) %} #{{ idx }}{% when None %}{% endmatch %}
+                <span>Series: <a href="{{ prefix }}/html/series/{{ book.series_id.unwrap() }}">{{ name }}</a>{% match book.series_index %}{% when Some with (idx) %}&nbsp;#{{ idx }}{% when None %}{% endmatch %}</span>
+                {% when None %}
+                {% endmatch %}
+                {% match book.publisher %}
+                {% when Some with (pub_name) %}
+                <span>{{ pub_name }}</span>
+                {% when None %}
+                {% endmatch %}
+                {% match book.book.pubdate %}
+                {% when Some with (date) %}
+                <span>{{ date.format("%Y") }}</span>
                 {% when None %}
                 {% endmatch %}
             </div>
-            {% match book.publisher %}
-            {% when Some with (pub_name) %}
-            <div class="book-meta">Publisher: {{ pub_name }}</div>
-            {% when None %}
-            {% endmatch %}
-            {% if book.tags.len() > 0 %}
-            <div class="book-meta">Tags: {% for tag in book.tags %}{{ tag }}{% if !loop.last %}, {% endif %}{% endfor %}</div>
-            {% endif %}
-            {% match book.book.pubdate %}
-            {% when Some with (date) %}
-            <div class="book-meta">Published: {{ date.format("%Y-%m-%d") }}</div>
-            {% when None %}
-            {% endmatch %}
-            <div class="book-meta">
+
+            <div class="badges">
                 {% match book.custom_columns.get("leido") %}
                 {% when Some with (val) %}
                 {% match val %}
                 {% when CustomValue::Bool(true) %}
-                ✅ Read
-                {% when _ %}
-                ❌ Unread
-                {% endmatch %}
-                {% when None %}
-                ❌ Unread
-                {% endmatch %}
+                <span class="badge read">✓ Read</span>
                 {% match book.custom_columns.get("leidoel") %}
-                {% when Some with (val) %}
-                | Read on: {{ val|relative_date }}
+                {% when Some with (d) %}
+                <span class="badge">Last read {{ d|relative_date }}</span>
                 {% when None %}
                 {% endmatch %}
                 {% match book.custom_columns.get("primera_vez") %}
-                {% when Some with (val) %}
-                | First read: {{ val|relative_date }}
+                {% when Some with (d) %}
+                <span class="badge">First read {{ d|relative_date }}</span>
                 {% when None %}
                 {% endmatch %}
+                {% when _ %}
+                <span class="badge">Unread</span>
+                {% endmatch %}
+                {% when None %}
+                <span class="badge">Unread</span>
+                {% endmatch %}
             </div>
+
+            {% if book.tags.len() > 0 %}
+            <div class="tag-chips">
+                {% for tag in book.tags %}<span class="tag-chip">{{ tag }}</span>{% endfor %}
+            </div>
+            {% endif %}
+
             {% match book.comment %}
             {% when Some with (text) %}
-            <div class="book-meta" style="margin-top: 5px;">{{ text|safe }}</div>
+            <div class="book-desc">{{ text|safe }}</div>
             {% when None %}
             {% endmatch %}
-            <div class="book-formats" style="margin-top: 10px;">
+
+            <div class="book-formats">
                 {% for format in book.formats %}
                 <a href="{{ prefix }}/download/{{ book.book.id }}/{{ format.format|lower }}">{{ format.format }}</a>
                 {% endfor %}
