@@ -61,12 +61,12 @@
             {% for author in book.authors %}{{ author.name }}{% if !loop.last %}, {% endif %}{% endfor %}
         </div>
         {% endif %}
-        <div style="font-size: 12px; margin-top: 4px;">
+        <div class="b-status">
             {% match book.custom_columns.get("leido") %}
             {% when Some with (val) %}
             {% match val %}
-            {% when CustomValue::Bool(true) %}✅{% when _ %}❌{% endmatch %}
-            {% when None %}❌{% endmatch %}
+            {% when CustomValue::Bool(true) %}<span class="badge read">✓ Read</span>{% when _ %}{% endmatch %}
+            {% when None %}{% endmatch %}
         </div>
         <div class="b-formats">
             {% for format in book.formats %}
