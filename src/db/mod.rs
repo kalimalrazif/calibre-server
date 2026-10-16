@@ -7,6 +7,33 @@ use std::collections::HashMap;
 /// (series_id, series_name, series_index) for a book.
 type SeriesInfo = (Option<i64>, Option<String>, Option<f64>);
 
+/// Map a `sort` query parameter to a SQL `ORDER BY` clause.
+///
+/// `default_clause` is used when `sort` is empty or unrecognized, so each
+/// listing can keep its own natural order (e.g. "recent" defaults to newest
+/// first) while still honoring an explicit sort choice from the UI.
+fn order_clause(sort: &str, default_clause: &'static str) -> &'static str {
+    match sort {
+        "title_asc" => "ORDER BY books.sort ASC",
+        "title_desc" => "ORDER BY books.sort DESC",
+        "author_asc" => {
+            "ORDER BY (SELECT name FROM authors JOIN books_authors_link ON authors.id = books_authors_link.author WHERE books_authors_link.book = books.id LIMIT 1) ASC"
+        }
+        "author_desc" => {
+            "ORDER BY (SELECT name FROM authors JOIN books_authors_link ON authors.id = books_authors_link.author WHERE books_authors_link.book = books.id LIMIT 1) DESC"
+        }
+        "date_asc" => "ORDER BY books.timestamp ASC",
+        "date_desc" => "ORDER BY books.timestamp DESC",
+        "rating_asc" => {
+            "ORDER BY (SELECT ratings.rating FROM books_ratings_link JOIN ratings ON books_ratings_link.rating = ratings.id WHERE books_ratings_link.book = books.id) ASC NULLS LAST"
+        }
+        "rating_desc" => {
+            "ORDER BY (SELECT ratings.rating FROM books_ratings_link JOIN ratings ON books_ratings_link.rating = ratings.id WHERE books_ratings_link.book = books.id) DESC NULLS LAST"
+        }
+        _ => default_clause,
+    }
+}
+
 /// Database connection and query methods
 pub struct CalibreDb {
     pool: SqlitePool,
@@ -241,25 +268,7 @@ impl CalibreDb {
         offset: i64,
         sort: &str,
     ) -> Result<Vec<BookMetadata>, sqlx::Error> {
-        let order_clause = match sort {
-            "title_asc" => "ORDER BY books.sort ASC",
-            "title_desc" => "ORDER BY books.sort DESC",
-            "author_asc" => {
-                "ORDER BY (SELECT name FROM authors JOIN books_authors_link ON authors.id = books_authors_link.author WHERE books_authors_link.book = books.id LIMIT 1) ASC"
-            }
-            "author_desc" => {
-                "ORDER BY (SELECT name FROM authors JOIN books_authors_link ON authors.id = books_authors_link.author WHERE books_authors_link.book = books.id LIMIT 1) DESC"
-            }
-            "date_asc" => "ORDER BY books.timestamp ASC",
-            "date_desc" => "ORDER BY books.timestamp DESC",
-            "rating_asc" => {
-                "ORDER BY (SELECT ratings.rating FROM books_ratings_link JOIN ratings ON books_ratings_link.rating = ratings.id WHERE books_ratings_link.book = books.id) ASC NULLS LAST"
-            }
-            "rating_desc" => {
-                "ORDER BY (SELECT ratings.rating FROM books_ratings_link JOIN ratings ON books_ratings_link.rating = ratings.id WHERE books_ratings_link.book = books.id) DESC NULLS LAST"
-            }
-            _ => "ORDER BY books.id",
-        };
+        let order_clause = order_clause(sort, "ORDER BY books.id");
 
         let query = format!("SELECT * FROM books {} LIMIT ? OFFSET ?", order_clause);
         let books = sqlx::query_as::<_, Book>(&query)
@@ -564,13 +573,28 @@ impl CalibreDb {
         self.load_metadata_batch(books).await
     }
 
-    /// Get recently added books
-    pub async fn get_recent_books(&self, limit: i64) -> Result<Vec<BookMetadata>, sqlx::Error> {
-        let books =
-            sqlx::query_as::<_, Book>("SELECT * FROM books ORDER BY timestamp DESC LIMIT ?")
-                .bind(limit)
-                .fetch_all(&self.pool)
-                .await?;
+    /// Get the most recently added books, ordered by `sort`.
+    ///
+    /// First selects the `limit` newest books by added date, THEN applies the
+    /// requested `sort` to that subset — so "recent" always means recent, and
+    /// `date_asc` yields the oldest *among the recent ones*, never the oldest
+    /// of the whole catalog. Defaults to newest-first when `sort` is empty.
+    pub async fn get_recent_books(
+        &self,
+        limit: i64,
+        sort: &str,
+    ) -> Result<Vec<BookMetadata>, sqlx::Error> {
+        let order_clause = order_clause(sort, "ORDER BY books.timestamp DESC");
+        // The inner query picks the N newest; the outer `books` alias lets the
+        // order_clause (which references `books.*`) sort that subset.
+        let query = format!(
+            "SELECT * FROM (SELECT * FROM books ORDER BY timestamp DESC LIMIT ?) AS books {}",
+            order_clause
+        );
+        let books = sqlx::query_as::<_, Book>(&query)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
 
         self.load_metadata_batch(books).await
     }
@@ -797,5 +821,34 @@ impl CalibreDb {
         .fetch_one(&self.pool)
         .await?;
         Ok(row.get("count"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::order_clause;
+
+    #[test]
+    fn order_clause_honors_explicit_sort_and_falls_back_to_default() {
+        let default = "ORDER BY books.id";
+
+        // The bug being fixed: an explicit sort must win over the default.
+        assert_eq!(
+            order_clause("date_asc", default),
+            "ORDER BY books.timestamp ASC"
+        );
+        assert_eq!(
+            order_clause("title_desc", default),
+            "ORDER BY books.sort DESC"
+        );
+
+        // Empty or unknown sort falls back to the caller's default, so each
+        // listing keeps its own natural order (e.g. recent -> newest first).
+        assert_eq!(order_clause("", default), default);
+        assert_eq!(order_clause("bogus", default), default);
+        assert_eq!(
+            order_clause("", "ORDER BY books.timestamp DESC"),
+            "ORDER BY books.timestamp DESC"
+        );
     }
 }

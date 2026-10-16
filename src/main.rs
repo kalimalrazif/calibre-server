@@ -370,7 +370,7 @@ async fn get_cover(
 
 /// Recently added books
 async fn recent_books(State(state): State<AppState>) -> Result<Response, AppError> {
-    let books = state.db.get_recent_books(100).await?;
+    let books = state.db.get_recent_books(100, "").await?;
     let total = books.len() as i64;
 
     let generator = OpdsGenerator::new(state.config.base_url());
@@ -782,7 +782,7 @@ async fn html_recent(
     State(state): State<AppState>,
     Query(params): Query<PaginationQuery>,
 ) -> Result<impl AskamaIntoResponse, AppError> {
-    let books = state.db.get_recent_books(100).await?;
+    let books = state.db.get_recent_books(100, &params.sort).await?;
     let total = books.len() as i64;
 
     Ok(BooksTemplate {
