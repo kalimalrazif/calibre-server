@@ -3,3 +3,15 @@ Cargo.lock
 *.db
 *.db-journal
 .env
+
+# Exported Docker images
+*.tar
+*.tar.bz2
+*.tar.gz
+
+# Downloaded OPDS feeds (browser dumps)
+*.atom
+
+# Deployment artifacts (host-specific: hostnames, paths, auth)
+/deploy/
+docker-compose.prod.yml
