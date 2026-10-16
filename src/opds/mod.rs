@@ -4,14 +4,38 @@ use quick_xml::Writer;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use std::io::Cursor;
 
-/// Generate OPDS feed XML
+/// Generate OPDS feed XML.
+///
+/// Links (`href`) are emitted as **root-relative** paths (`{prefix}/books`),
+/// so the feed works unchanged whether the service is mounted at `/` or
+/// behind a reverse proxy at `/some/path/`. Feed `<id>` values use the
+/// absolute `base_url` so they stay globally unique and stable.
 pub struct OpdsGenerator {
+    /// Absolute base URL, used only for stable feed `<id>` values.
     base_url: String,
+    /// Root-relative mount prefix (e.g. "" or "/cops"), used for all `href`s.
+    prefix: String,
 }
 
 impl OpdsGenerator {
+    /// Build a generator from the absolute base URL. The href prefix is
+    /// derived from the path component of `base_url` (empty when mounted at
+    /// root), so a single `BASE_URL` config value drives both.
     pub fn new(base_url: String) -> Self {
-        Self { base_url }
+        let prefix = Self::prefix_from(&base_url);
+        Self { base_url, prefix }
+    }
+
+    /// Extract the root-relative path prefix from an absolute URL.
+    /// `https://host/cops` -> `/cops`; `https://host` or `https://host/` -> ``.
+    fn prefix_from(url: &str) -> String {
+        if let Some(pos) = url.find("://") {
+            let after_scheme = &url[pos + 3..];
+            if let Some(slash) = after_scheme.find('/') {
+                return after_scheme[slash..].trim_end_matches('/').to_string();
+            }
+        }
+        String::new()
     }
 
     /// Generate root catalog feed
@@ -37,7 +61,7 @@ impl OpdsGenerator {
         // Link to self
         let mut link = BytesStart::new("link");
         link.push_attribute(("rel", "self"));
-        link.push_attribute(("href", format!("{}/", self.base_url).as_str()));
+        link.push_attribute(("href", format!("{}/", self.prefix).as_str()));
         link.push_attribute((
             "type",
             "application/atom+xml;profile=opds-catalog;kind=navigation",
@@ -47,7 +71,7 @@ impl OpdsGenerator {
         // OpenSearch link
         let mut link = BytesStart::new("link");
         link.push_attribute(("rel", "search"));
-        link.push_attribute(("href", format!("{}/search.xml", self.base_url).as_str()));
+        link.push_attribute(("href", format!("{}/search.xml", self.prefix).as_str()));
         link.push_attribute(("type", "application/opensearchdescription+xml"));
         writer.write_event(Event::Empty(link))?;
 
@@ -164,11 +188,7 @@ impl OpdsGenerator {
         link.push_attribute(("rel", "self"));
         link.push_attribute((
             "href",
-            format!(
-                "{}/books?page={}&per_page={}",
-                self.base_url, page, per_page
-            )
-            .as_str(),
+            format!("{}/books?page={}&per_page={}", self.prefix, page, per_page).as_str(),
         ));
         link.push_attribute((
             "type",
@@ -185,7 +205,7 @@ impl OpdsGenerator {
                 "href",
                 format!(
                     "{}/books?page={}&per_page={}",
-                    self.base_url,
+                    self.prefix,
                     page + 1,
                     per_page
                 )
@@ -206,7 +226,7 @@ impl OpdsGenerator {
                 "href",
                 format!(
                     "{}/books?page={}&per_page={}",
-                    self.base_url,
+                    self.prefix,
                     page - 1,
                     per_page
                 )
@@ -334,7 +354,7 @@ impl OpdsGenerator {
             thumb.push_attribute(("rel", "http://opds-spec.org/image/thumbnail"));
             thumb.push_attribute((
                 "href",
-                format!("{}/cover/{}", self.base_url, book.id).as_str(),
+                format!("{}/cover/{}", self.prefix, book.id).as_str(),
             ));
             thumb.push_attribute(("type", "image/jpeg"));
             writer.write_event(Event::Empty(thumb))?;
@@ -344,7 +364,7 @@ impl OpdsGenerator {
             link.push_attribute(("rel", "http://opds-spec.org/image"));
             link.push_attribute((
                 "href",
-                format!("{}/cover/{}", self.base_url, book.id).as_str(),
+                format!("{}/cover/{}", self.prefix, book.id).as_str(),
             ));
             link.push_attribute(("type", "image/jpeg"));
             writer.write_event(Event::Empty(link))?;
@@ -366,7 +386,7 @@ impl OpdsGenerator {
                 "href",
                 format!(
                     "{}/download/{}/{}",
-                    self.base_url,
+                    self.prefix,
                     book.id,
                     format.format.to_lowercase()
                 )
@@ -412,7 +432,7 @@ impl OpdsGenerator {
 
         let mut link = BytesStart::new("link");
         link.push_attribute(("rel", "subsection"));
-        link.push_attribute(("href", format!("{}{}", self.base_url, path).as_str()));
+        link.push_attribute(("href", format!("{}{}", self.prefix, path).as_str()));
         link.push_attribute((
             "type",
             "application/atom+xml;profile=opds-catalog;kind=navigation",
@@ -446,7 +466,7 @@ impl OpdsGenerator {
         // Self link
         let mut link = BytesStart::new("link");
         link.push_attribute(("rel", "self"));
-        link.push_attribute(("href", format!("{}{}", self.base_url, path).as_str()));
+        link.push_attribute(("href", format!("{}{}", self.prefix, path).as_str()));
         link.push_attribute((
             "type",
             "application/atom+xml;profile=opds-catalog;kind=navigation",
@@ -470,7 +490,7 @@ impl OpdsGenerator {
             link.push_attribute(("rel", "subsection"));
             link.push_attribute((
                 "href",
-                format!("{}{}/{}", self.base_url, path, category.id).as_str(),
+                format!("{}{}/{}", self.prefix, path, category.id).as_str(),
             ));
             link.push_attribute((
                 "type",
@@ -506,7 +526,7 @@ impl OpdsGenerator {
         ));
         url.push_attribute((
             "template",
-            format!("{}/search?q={{searchTerms}}", self.base_url).as_str(),
+            format!("{}/search?q={{searchTerms}}", self.prefix).as_str(),
         ));
         writer.write_event(Event::Empty(url))?;
 
@@ -514,5 +534,42 @@ impl OpdsGenerator {
 
         let result = writer.into_inner().into_inner();
         Ok(String::from_utf8(result)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prefix_from_handles_root_and_subpath() {
+        // Mounted at root -> empty prefix.
+        assert_eq!(OpdsGenerator::prefix_from("http://host:8080"), "");
+        assert_eq!(OpdsGenerator::prefix_from("http://host:8080/"), "");
+        // Mounted under a subpath -> that path, trailing slash trimmed.
+        assert_eq!(OpdsGenerator::prefix_from("https://host/cops"), "/cops");
+        assert_eq!(OpdsGenerator::prefix_from("https://host/cops/"), "/cops");
+        assert_eq!(
+            OpdsGenerator::prefix_from("https://host/path/to/svc"),
+            "/path/to/svc"
+        );
+    }
+
+    #[test]
+    fn root_feed_links_are_relative_to_mount() {
+        // At root: hrefs start with "/", not the absolute host.
+        let root = OpdsGenerator::new("http://host:8080".to_string())
+            .generate_root()
+            .unwrap();
+        assert!(root.contains("href=\"/books\""));
+        assert!(root.contains("href=\"/search.xml\""));
+        assert!(!root.contains("href=\"http://host:8080/books\""));
+
+        // Under /cops: same links, prefixed — portable without code changes.
+        let sub = OpdsGenerator::new("https://host/cops".to_string())
+            .generate_root()
+            .unwrap();
+        assert!(sub.contains("href=\"/cops/books\""));
+        assert!(sub.contains("href=\"/cops/search.xml\""));
     }
 }
