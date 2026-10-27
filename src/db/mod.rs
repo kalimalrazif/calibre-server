@@ -195,6 +195,22 @@ impl CalibreDb {
             comment_by_book.insert(row.get("book"), row.get("text"));
         }
 
+        // --- Languages (first language per book; Calibre stores an ISO code) ---
+        let language_rows = fetch_dyn!(format!(
+            "SELECT bll.book AS book, l.lang_code AS lang_code
+             FROM books_languages_link bll
+             JOIN languages l ON l.id = bll.lang_code
+             WHERE bll.book IN ({placeholders})
+             ORDER BY bll.item_order"
+        ))?;
+        let mut language_by_book: HashMap<i64, String> = HashMap::new();
+        for row in language_rows {
+            // Keep the first (lowest item_order) language per book.
+            language_by_book
+                .entry(row.get("book"))
+                .or_insert_with(|| row.get("lang_code"));
+        }
+
         // --- Custom columns (one query per non-deleted column, over all books) ---
         let mut custom_by_book: HashMap<i64, HashMap<String, CustomValue>> = HashMap::new();
         for col in &self.custom_columns {
@@ -254,6 +270,7 @@ impl CalibreDb {
                     tags: tags_by_book.remove(&id).unwrap_or_default(),
                     publisher: publisher_by_book.remove(&id),
                     comment: comment_by_book.remove(&id),
+                    language: language_by_book.remove(&id),
                 }
             })
             .collect();

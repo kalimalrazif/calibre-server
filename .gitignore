@@ -15,3 +15,6 @@ Cargo.lock
 # Deployment artifacts (host-specific: hostnames, paths, auth)
 /deploy/
 docker-compose.prod.yml
+
+# Local reference material (third-party source, e.g. cops) — never published
+/dev-docs/

@@ -191,6 +191,7 @@ mod tests {
             tags: vec![],
             publisher: None,
             comment: None,
+            language: None,
         }
     }
 

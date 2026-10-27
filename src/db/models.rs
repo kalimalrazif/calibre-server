@@ -99,4 +99,6 @@ pub struct BookMetadata {
     pub tags: Vec<String>,
     pub publisher: Option<String>,
     pub comment: Option<String>,
+    /// ISO language code from Calibre's `languages` table (e.g. "spa", "eng").
+    pub language: Option<String>,
 }

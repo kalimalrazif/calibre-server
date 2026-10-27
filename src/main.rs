@@ -170,6 +170,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/last-read-years/:year", get(books_last_read_in_year))
         .route("/download/:id/:format", get(download_book))
         .route("/cover/:id", get(get_cover))
+        .route("/cover/:id/thumbnail", get(get_cover_thumbnail))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -228,7 +229,8 @@ async fn search_books(
     let total = state.db.count_search(&params.q).await?;
 
     let generator = OpdsGenerator::new(state.config.base_url());
-    let xml = generator.generate_books_feed(books, params.page, params.per_page, total)?;
+    let xml =
+        generator.generate_search_feed(books, &params.q, params.page, params.per_page, total)?;
 
     Ok((
         StatusCode::OK,
@@ -361,12 +363,100 @@ async fn get_cover(
 
     let content = tokio::fs::read(&cover_path).await?;
 
-    Ok((
+    Ok(jpeg_response(content))
+}
+
+/// Build an image/jpeg response with an explicit Content-Length.
+///
+/// Readers (FBReader) only render a cover thumbnail in the catalog LIST when the
+/// image response declares its length; a chunked response without Content-Length
+/// showed no cover in the list even though the bytes were valid. cops serves
+/// covers with Content-Length via readfile(), so we match that.
+fn jpeg_response(bytes: Vec<u8>) -> Response {
+    (
         StatusCode::OK,
-        [(header::CONTENT_TYPE, "image/jpeg")],
-        content,
+        [
+            (header::CONTENT_TYPE, "image/jpeg".to_string()),
+            (header::CONTENT_LENGTH, bytes.len().to_string()),
+        ],
+        bytes,
     )
-        .into_response())
+        .into_response()
+}
+
+/// OPDS thumbnail height (px), matching cops' `cops_opds_thumbnail_height`.
+/// Readers (FBReader) show the cover in the catalog list from the thumbnail
+/// link; serving a small resized image here — not the full-size cover — is what
+/// makes the list render covers like cops did.
+const THUMBNAIL_HEIGHT: u32 = 164;
+
+/// Get a book cover resized to THUMBNAIL_HEIGHT, cached on disk.
+///
+/// ponytail: resize is synchronous and the cache never self-purges — it lives
+/// under the OS temp dir keyed by book id + height, so it survives requests but
+/// is reclaimed on host restart. If the library grows huge, swap the temp dir
+/// for a bounded LRU cache. First hit per cover pays the decode+resize; later
+/// hits serve the cached JPEG.
+async fn get_cover_thumbnail(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let cache_dir = std::env::temp_dir().join("calibre-server-thumbs");
+    let cache_path = cache_dir.join(format!("{}-{}.jpg", id, THUMBNAIL_HEIGHT));
+
+    // Serve from cache when present.
+    if let Ok(cached) = tokio::fs::read(&cache_path).await {
+        return Ok(jpeg_response(cached));
+    }
+
+    let book_meta = state.db.get_book_metadata(id).await?;
+    let cover_path = state
+        .config
+        .library_path
+        .join(&book_meta.book.path)
+        .join("cover.jpg");
+
+    if !cover_path.exists() {
+        return Err(AppError::NotFound("Cover not found".to_string()));
+    }
+
+    let source = tokio::fs::read(&cover_path).await?;
+
+    // Decode + resize + re-encode off the async runtime (CPU-bound).
+    let thumb = tokio::task::spawn_blocking(move || resize_jpeg(&source, THUMBNAIL_HEIGHT))
+        .await
+        .map_err(|e| AppError::Internal(format!("thumbnail task failed: {e}")))?
+        .map_err(AppError::Internal)?;
+
+    // Best-effort cache write; a failure here just means the next hit re-resizes.
+    let _ = tokio::fs::create_dir_all(&cache_dir).await;
+    let _ = tokio::fs::write(&cache_path, &thumb).await;
+
+    Ok(jpeg_response(thumb))
+}
+
+/// Decode a JPEG, scale it to `height` px (preserving aspect ratio, never
+/// upscaling), and re-encode as JPEG. Returns the original bytes unchanged when
+/// the cover is already shorter than `height`.
+fn resize_jpeg(data: &[u8], height: u32) -> Result<Vec<u8>, String> {
+    use image::{ImageFormat, ImageReader};
+    use std::io::Cursor;
+
+    let img = ImageReader::with_format(Cursor::new(data), ImageFormat::Jpeg)
+        .decode()
+        .map_err(|e| format!("decode cover: {e}"))?;
+
+    if img.height() <= height {
+        return Ok(data.to_vec());
+    }
+    let width = img.width() * height / img.height();
+    let resized = img.resize(width, height, image::imageops::FilterType::Triangle);
+
+    let mut out = Cursor::new(Vec::new());
+    resized
+        .write_to(&mut out, ImageFormat::Jpeg)
+        .map_err(|e| format!("encode thumbnail: {e}"))?;
+    Ok(out.into_inner())
 }
 
 /// Recently added books
@@ -1145,6 +1235,7 @@ enum AppError {
     Io(std::io::Error),
     Opds(Box<dyn std::error::Error>),
     NotFound(String),
+    Internal(String),
 }
 
 impl From<sqlx::Error> for AppError {
@@ -1172,6 +1263,7 @@ impl IntoResponse for AppError {
             AppError::Io(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             AppError::Opds(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
+            AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
         };
 
         tracing::error!("Request error: {:?}", self);
