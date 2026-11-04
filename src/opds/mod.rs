@@ -34,6 +34,54 @@ impl OpdsGenerator {
         self.base_url.trim_end_matches('/')
     }
 
+    /// Emit the OpenSearch discovery `<link rel="search">`. It must appear in
+    /// EVERY feed, not only the root: FBReader enables its search box from the
+    /// feed the user is currently viewing, so a sub-feed (All Books, By Author,
+    /// …) without this link shows no search affordance and never fires a query.
+    /// `title` is included because some readers key the button label/presence
+    /// on it (cops sends `title="Search here"`).
+    fn write_search_link(
+        &self,
+        writer: &mut Writer<Cursor<Vec<u8>>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut link = BytesStart::new("link");
+        link.push_attribute(("rel", "search"));
+        link.push_attribute(("href", format!("{}/search.xml", self.href_base()).as_str()));
+        link.push_attribute(("type", "application/opensearchdescription+xml"));
+        link.push_attribute(("title", "Search"));
+        writer.write_event(Event::Empty(link))?;
+        Ok(())
+    }
+
+    /// Turn a book title into a safe, URL/filename-friendly slug for the last
+    /// segment of a download href. Keeps ASCII alphanumerics, collapses every
+    /// other run of characters into a single `_`, and trims leading/trailing
+    /// `_`. A title that reduces to nothing falls back to `book`.
+    ///
+    /// ponytail: ASCII-only slug. Non-ASCII letters (accents, CJK) collapse to
+    /// `_`; that is deliberate for a path segment that must survive any reader
+    /// and any filesystem. The real title is still in `<title>` and in the
+    /// Content-Disposition filename.
+    fn filename_slug(title: &str) -> String {
+        let mut slug = String::with_capacity(title.len());
+        let mut prev_sep = false;
+        for c in title.chars() {
+            if c.is_ascii_alphanumeric() {
+                slug.push(c);
+                prev_sep = false;
+            } else if !prev_sep {
+                slug.push('_');
+                prev_sep = true;
+            }
+        }
+        let trimmed = slug.trim_matches('_');
+        if trimmed.is_empty() {
+            "book".to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
     /// Generate root catalog feed
     pub fn generate_root(&self) -> Result<String, Box<dyn std::error::Error>> {
         let mut writer = Writer::new(Cursor::new(Vec::new()));
@@ -43,6 +91,9 @@ impl OpdsGenerator {
         feed.push_attribute(("xmlns", "http://www.w3.org/2005/Atom"));
         feed.push_attribute(("xmlns:dcterms", "http://purl.org/dc/terms/"));
         feed.push_attribute(("xmlns:opds", "http://opds-spec.org/2010/catalog"));
+        // OpenSearch namespace: some readers (FBReader) only enable the search
+        // UI when the feed declares it, as cops does.
+        feed.push_attribute(("xmlns:opensearch", "http://a9.com/-/spec/opensearch/1.1/"));
         writer.write_event(Event::Start(feed))?;
 
         self.write_element(&mut writer, "id", &format!("{}/", self.base_url))?;
@@ -64,12 +115,8 @@ impl OpdsGenerator {
         ));
         writer.write_event(Event::Empty(link))?;
 
-        // OpenSearch link
-        let mut link = BytesStart::new("link");
-        link.push_attribute(("rel", "search"));
-        link.push_attribute(("href", format!("{}/search.xml", self.href_base()).as_str()));
-        link.push_attribute(("type", "application/opensearchdescription+xml"));
-        writer.write_event(Event::Empty(link))?;
+        // OpenSearch discovery link.
+        self.write_search_link(&mut writer)?;
 
         // Link to all books
         self.write_navigation_entry(
@@ -212,6 +259,7 @@ impl OpdsGenerator {
         feed.push_attribute(("xmlns:dcterms", "http://purl.org/dc/terms/"));
         feed.push_attribute(("xmlns:opds", "http://opds-spec.org/2010/catalog"));
         feed.push_attribute(("xmlns:calibre", "http://calibre-ebook.com"));
+        feed.push_attribute(("xmlns:opensearch", "http://a9.com/-/spec/opensearch/1.1/"));
         writer.write_event(Event::Start(feed))?;
 
         self.write_element(&mut writer, "id", &format!("{}{}", self.base_url, path))?;
@@ -238,6 +286,10 @@ impl OpdsGenerator {
             "application/atom+xml;profile=opds-catalog;kind=acquisition",
         ));
         writer.write_event(Event::Empty(link))?;
+
+        // Search affordance on this feed too, so the reader's search box works
+        // while browsing results/listings, not only from the root.
+        self.write_search_link(&mut writer)?;
 
         // Next page link
         let total_pages = (total + per_page - 1) / per_page;
@@ -444,15 +496,24 @@ impl OpdsGenerator {
                 _ => "application/octet-stream",
             };
 
+            // The href ends in a real filename with extension
+            // (`.../download/{id}/{format}/{slug}.{format}`) so a reader that
+            // ignores Content-Disposition names the saved file from the URL's
+            // last segment instead of the bare format (which produced
+            // `epub.epub`). cops does the same with its `/fetch/.../{slug}.epub`.
+            let ext = format.format.to_lowercase();
+            let slug = Self::filename_slug(&book.title);
             let mut link = BytesStart::new("link");
             link.push_attribute(("rel", "http://opds-spec.org/acquisition"));
             link.push_attribute((
                 "href",
                 format!(
-                    "{}/download/{}/{}",
+                    "{}/download/{}/{}/{}.{}",
                     self.href_base(),
                     book.id,
-                    format.format.to_lowercase()
+                    ext,
+                    slug,
+                    ext
                 )
                 .as_str(),
             ));
@@ -537,6 +598,7 @@ impl OpdsGenerator {
         feed.push_attribute(("xmlns", "http://www.w3.org/2005/Atom"));
         feed.push_attribute(("xmlns:dcterms", "http://purl.org/dc/terms/"));
         feed.push_attribute(("xmlns:opds", "http://opds-spec.org/2010/catalog"));
+        feed.push_attribute(("xmlns:opensearch", "http://a9.com/-/spec/opensearch/1.1/"));
         writer.write_event(Event::Start(feed))?;
 
         self.write_element(&mut writer, "id", &format!("{}{}", self.base_url, path))?;
@@ -552,6 +614,9 @@ impl OpdsGenerator {
             "application/atom+xml;profile=opds-catalog;kind=navigation",
         ));
         writer.write_event(Event::Empty(link))?;
+
+        // Search affordance on navigation/category feeds too.
+        self.write_search_link(&mut writer)?;
 
         // Write category entries
         for category in categories {
@@ -598,17 +663,28 @@ impl OpdsGenerator {
 
         self.write_element(&mut writer, "ShortName", "Calibre Library")?;
         self.write_element(&mut writer, "Description", "Search Calibre Library")?;
+        self.write_element(&mut writer, "InputEncoding", "UTF-8")?;
+        self.write_element(&mut writer, "OutputEncoding", "UTF-8")?;
 
+        // The <Url> `type` is the bare `application/atom+xml`, as cops emits it.
+        // FBReader matches the descriptor's Url type to decide whether a catalog
+        // is searchable; the fuller `profile=opds-catalog;kind=acquisition`
+        // value made it not recognize the search template, so the in-app search
+        // never fired. The template keeps `q={searchTerms}`, matching the
+        // `/search?q=` route and its `SearchQuery.q` handler.
         let mut url = BytesStart::new("Url");
-        url.push_attribute((
-            "type",
-            "application/atom+xml;profile=opds-catalog;kind=acquisition",
-        ));
+        url.push_attribute(("type", "application/atom+xml"));
         url.push_attribute((
             "template",
             format!("{}/search?q={{searchTerms}}", self.href_base()).as_str(),
         ));
         writer.write_event(Event::Empty(url))?;
+
+        // Example query: some readers surface it, and it is harmless otherwise.
+        let mut example = BytesStart::new("Query");
+        example.push_attribute(("role", "example"));
+        example.push_attribute(("searchTerms", "robot"));
+        writer.write_event(Event::Empty(example))?;
 
         writer.write_event(Event::End(BytesEnd::new("OpenSearchDescription")))?;
 
@@ -695,5 +771,109 @@ mod tests {
         assert!(feed.contains("q=foo%20%26%20bar"));
         // Accented characters are preserved (not corrupted byte-by-byte).
         assert_eq!(urlencode("ción"), "ción");
+    }
+
+    #[test]
+    fn every_feed_advertises_search_not_only_root() {
+        let g = OpdsGenerator::new("https://host/calibre".to_string());
+        // Root advertises search.
+        let root = g.generate_root().unwrap();
+        assert!(
+            root.contains(r#"rel="search""#),
+            "root must advertise search"
+        );
+        // An acquisition (books) feed must advertise it too, so FBReader's
+        // search box works while browsing a listing.
+        let books = g.generate_books_feed(vec![], 1, 50, 0).unwrap();
+        assert!(
+            books.contains(r#"rel="search""#),
+            "books feed must advertise search; got: {books}"
+        );
+        // A navigation/category feed must advertise it too.
+        let cats = g
+            .generate_category_feed("Authors", "/authors", vec![])
+            .unwrap();
+        assert!(
+            cats.contains(r#"rel="search""#),
+            "category feed must advertise search; got: {cats}"
+        );
+    }
+
+    #[test]
+    fn opensearch_url_type_is_bare_atom_for_fbreader() {
+        let g = OpdsGenerator::new("https://host/calibre".to_string());
+        let xml = g.generate_opensearch().unwrap();
+        // FBReader needs the bare atom type on the <Url>, not the fuller
+        // profile/kind variant, to recognize the catalog as searchable.
+        assert!(
+            xml.contains(r#"<Url type="application/atom+xml" template="https://host/calibre/search?q={searchTerms}""#),
+            "descriptor Url must use bare atom type; got: {xml}"
+        );
+        assert!(xml.contains("<InputEncoding>UTF-8</InputEncoding>"));
+    }
+
+    #[test]
+    fn filename_slug_is_safe_and_never_empty() {
+        // Spaces and punctuation collapse to single underscores, trimmed.
+        assert_eq!(
+            OpdsGenerator::filename_slug("Cooking for Geeks: Real Science!"),
+            "Cooking_for_Geeks_Real_Science"
+        );
+        // Non-ASCII collapses to `_`; result still usable.
+        assert_eq!(
+            OpdsGenerator::filename_slug("El caballero dragón"),
+            "El_caballero_drag_n"
+        );
+        // A title that reduces to nothing falls back to `book`.
+        assert_eq!(OpdsGenerator::filename_slug("¿?¡!"), "book");
+    }
+
+    #[test]
+    fn book_entry_download_href_ends_in_slug_with_extension() {
+        use crate::db::models::{Author, Book, BookFormat, BookMetadata};
+        use std::collections::HashMap;
+        let g = OpdsGenerator::new("https://host/calibre".to_string());
+        let meta = BookMetadata {
+            book: Book {
+                id: 7,
+                title: "My Book".to_string(),
+                sort: None,
+                timestamp: None,
+                pubdate: None,
+                series_index: None,
+                author_sort: None,
+                path: "x".to_string(),
+                uuid: None,
+                has_cover: Some(false),
+                last_modified: None,
+            },
+            authors: vec![Author {
+                id: 1,
+                name: "A".to_string(),
+                sort: None,
+                link: None,
+            }],
+            formats: vec![BookFormat {
+                id: 1,
+                book: 7,
+                format: "EPUB".to_string(),
+                uncompressed_size: None,
+                name: "My Book".to_string(),
+            }],
+            custom_columns: HashMap::new(),
+            series_id: None,
+            series_name: None,
+            series_index: None,
+            tags: vec![],
+            publisher: None,
+            comment: None,
+            language: None,
+        };
+        let feed = g.generate_books_feed(vec![meta], 1, 50, 1).unwrap();
+        // The acquisition href ends in `{slug}.{ext}`, not the bare format.
+        assert!(
+            feed.contains("/download/7/epub/My_Book.epub"),
+            "download href should end in a named file; feed was: {feed}"
+        );
     }
 }

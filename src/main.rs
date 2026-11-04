@@ -169,6 +169,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/last-read-years", get(last_read_years_catalog))
         .route("/last-read-years/:year", get(books_last_read_in_year))
         .route("/download/:id/:format", get(download_book))
+        // Same handler, but with a trailing `{slug}.{ext}` segment so OPDS
+        // readers that ignore Content-Disposition name the file from the URL
+        // instead of saving every book as `epub.epub`. The filename segment is
+        // cosmetic and ignored server-side.
+        .route("/download/:id/:format/:filename", get(download_book_named))
         .route("/cover/:id", get(get_cover))
         .route("/cover/:id/thumbnail", get(get_cover_thumbnail))
         .layer(CompressionLayer::new())
@@ -269,6 +274,16 @@ async fn books_catalog(
         .into_response())
 }
 
+/// Download a book whose URL carries a trailing `{slug}.{ext}` filename
+/// segment. The filename is cosmetic (it only tells the OPDS reader what to
+/// name the saved file); the actual format comes from the `format` segment.
+async fn download_book_named(
+    state: State<AppState>,
+    Path((id, format, _filename)): Path<(i64, String, String)>,
+) -> Result<Response, AppError> {
+    download_book(state, Path((id, format))).await
+}
+
 /// Download a book in specific format
 async fn download_book(
     State(state): State<AppState>,
@@ -328,20 +343,68 @@ async fn download_book(
         .first_or_octet_stream()
         .to_string();
 
-    let filename = format!("{}.{}", book_meta.book.title, format.to_lowercase());
+    let ext = format.to_lowercase();
+    // ASCII fallback for `filename` (no quotes/control chars that would break
+    // the header), plus a UTF-8 `filename*` (RFC 5987) carrying the real title
+    // so compliant clients keep accents. A reader that ignores both still gets
+    // a correct name from the URL's trailing `{slug}.{ext}` segment.
+    let ascii_name = ascii_filename(&book_meta.book.title);
+    let disposition = format!(
+        "attachment; filename=\"{ascii_name}.{ext}\"; filename*=UTF-8''{}.{ext}",
+        percent_encode_filename(&book_meta.book.title)
+    );
 
     Ok((
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, mime_type),
-            (
-                header::CONTENT_DISPOSITION,
-                format!("attachment; filename=\"{}\"", filename),
-            ),
+            (header::CONTENT_DISPOSITION, disposition),
         ],
         content,
     )
         .into_response())
+}
+
+/// ASCII-safe filename for the `Content-Disposition` `filename=` fallback:
+/// drops quotes, backslashes and control chars, maps non-ASCII to `_`, and
+/// avoids an empty result.
+fn ascii_filename(title: &str) -> String {
+    let s: String = title
+        .chars()
+        .map(|c| {
+            if c.is_ascii() && !c.is_control() && c != '"' && c != '\\' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        "book".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Percent-encode a UTF-8 string for the `filename*` (RFC 5987) parameter:
+/// everything outside the RFC's `attr-char` set is `%XX`-encoded.
+fn percent_encode_filename(title: &str) -> String {
+    let mut out = String::with_capacity(title.len());
+    for b in title.as_bytes() {
+        let c = *b;
+        let unreserved = c.is_ascii_alphanumeric()
+            || matches!(
+                c,
+                b'!' | b'#' | b'$' | b'&' | b'+' | b'-' | b'.' | b'^' | b'_' | b'`' | b'|' | b'~'
+            );
+        if unreserved {
+            out.push(c as char);
+        } else {
+            out.push_str(&format!("%{c:02X}"));
+        }
+    }
+    out
 }
 
 /// Get book cover image
